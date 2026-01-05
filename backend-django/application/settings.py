@@ -36,13 +36,17 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 
 INSTALLED_APPS = [
+    'django.contrib.staticfiles',  # 静态文件支持
     'channels',  # WebSocket支持
+    'ninja',     # Django Ninja API 框架（需要加入才能使用本地静态文件）
     'core',
     'scheduler',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # 生产环境静态文件服务（方案二）: pip install whitenoise，取消下面的注释
+    # 'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -54,6 +58,21 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'application.urls'
 AUTH_USER_MODEL = 'core.User'
+
+# Templates 配置 - Django Ninja API 文档需要模板引擎
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [BASE_DIR / 'templates'],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+            ],
+        },
+    },
+]
 
 WSGI_APPLICATION = 'application.wsgi.application'
 
@@ -71,7 +90,16 @@ USE_TZ = False
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# 生产环境静态文件收集目录
+# 运行 python manage.py collectstatic 后，所有静态文件会被收集到这个目录
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Swagger UI 静态资源配置
+# 静态文件已下载到 static/swagger-ui/ 目录
+# 自定义模板位于 templates/ninja/swagger.html
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases

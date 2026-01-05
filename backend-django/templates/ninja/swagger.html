@@ -1,0 +1,45 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- 自定义 Swagger UI 静态资源路径 -->
+    <link type="text/css" rel="stylesheet" href="{% static 'swagger-ui/swagger-ui.css' %}">
+    <link rel="shortcut icon" href="https://django-ninja.dev/img/favicon.png">
+    <title>{{ api.title }}</title>
+</head>
+<body
+    data-csrf-token="{% if add_csrf %}{{ csrf_token }}{% endif %}"
+    data-api-csrf="{% if add_csrf %}true{% endif %}">
+
+    <script type="application/json" id="swagger-settings">
+        {{ swagger_settings | safe }}
+    </script>
+    
+    <div id="swagger-ui"></div>
+
+    <script src="{% static 'swagger-ui/swagger-ui-bundle.js' %}"></script>
+    <script>
+        const configJson = document.getElementById("swagger-settings").textContent;
+        const configObject = JSON.parse(configJson);
+
+        configObject.dom_id = "#swagger-ui";
+        configObject.presets = [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIBundle.SwaggerUIStandalonePreset
+        ];
+
+        const csrfToken = document.body.dataset.csrfToken;
+        const apiCsrf = document.body.dataset.apiCsrf;
+
+        if (apiCsrf === 'true' && csrfToken) {
+            configObject.requestInterceptor = (req) => {
+                req.headers['X-CSRFToken'] = csrfToken;
+                return req;
+            };
+        }
+
+        const ui = SwaggerUIBundle(configObject);
+    </script>
+</body>
+</html>
+

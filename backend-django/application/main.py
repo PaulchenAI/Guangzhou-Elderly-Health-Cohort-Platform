@@ -26,6 +26,9 @@ class MyJsonRenderer(JSONRenderer):
     encoder_class = MyJsonEncoder
 
 
+# 使用本地静态文件的 Swagger UI
+# 静态文件位置: static/swagger-ui/
+# 模板文件位置: templates/ninja/swagger.html
 api = NinjaAPI(auth=[BearerAuth(), ApiKey()], renderer=MyJsonRenderer())
 
 

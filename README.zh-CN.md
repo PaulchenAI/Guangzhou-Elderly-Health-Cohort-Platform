@@ -134,10 +134,15 @@ cd zq-platform/backend-django
 
 2. **创建虚拟环境**
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-venv\Scripts\activate     # Windows
+# python -m venv venv
+
+# source venv/bin/activate  # Linux/Mac
+# # 或
+# venv\Scripts\activate     # Windows
+conda create -n zqplat python=3.11 -y
+conda activate zqplat
+conda deactivate
+
 ```
 
 3. **安装依赖**
@@ -147,8 +152,10 @@ pip install -r requirements.txt
 
 4. **配置环境变量**
 ```bash
-cp env
+# cp env
 # 编辑 .env 文件，配置数据库、Redis、JWT 密钥等
+# 创建 .env文件
+vim .env
 ```
 
 主要配置项：
