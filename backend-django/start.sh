@@ -113,7 +113,39 @@ create_directories() {
     print_info "创建必要的目录..."
     mkdir -p logs
     mkdir -p media/file_manager
+    mkdir -p static/swagger-ui
+    mkdir -p templates/ninja
     print_success "目录创建完成"
+}
+
+# 检查并下载 Swagger UI 静态文件
+check_swagger_ui() {
+    local swagger_css="$SCRIPT_DIR/static/swagger-ui/swagger-ui.css"
+    local swagger_js="$SCRIPT_DIR/static/swagger-ui/swagger-ui-bundle.js"
+    local download_script="$SCRIPT_DIR/../tools/download_swagger_ui.py"
+    
+    if [ -f "$swagger_css" ] && [ -f "$swagger_js" ]; then
+        print_success "Swagger UI 静态文件已存在"
+        return 0
+    fi
+    
+    print_warning "Swagger UI 静态文件不存在，正在下载..."
+    
+    if [ -f "$download_script" ]; then
+        python "$download_script" --target "$SCRIPT_DIR/static/swagger-ui"
+        if [ $? -eq 0 ]; then
+            print_success "Swagger UI 静态文件下载完成"
+            return 0
+        else
+            print_error "Swagger UI 静态文件下载失败"
+            print_warning "API 文档将使用 CDN 加载静态资源"
+            return 1
+        fi
+    else
+        print_warning "下载脚本不存在: $download_script"
+        print_warning "API 文档将使用 CDN 加载静态资源"
+        return 1
+    fi
 }
 
 # 执行数据库迁移
@@ -276,6 +308,7 @@ init_project() {
     activate_venv
     install_dependencies
     create_directories
+    check_swagger_ui
     run_migrate
     load_data
     
@@ -339,6 +372,7 @@ main() {
         activate_venv
         check_dependencies
         create_directories
+        check_swagger_ui
     fi
     
     # 执行命令

@@ -217,6 +217,30 @@ if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r "${BACKEND_DIR}/requirements.txt"
     echo -e "${GREEN}Python 依赖安装完成${NC}"
     
+    # 下载 Swagger UI 静态文件
+    echo -e "${YELLOW}检查 Swagger UI 静态文件...${NC}"
+    SWAGGER_DIR="${BACKEND_DIR}/static/swagger-ui"
+    SWAGGER_CSS="${SWAGGER_DIR}/swagger-ui.css"
+    SWAGGER_JS="${SWAGGER_DIR}/swagger-ui-bundle.js"
+    DOWNLOAD_SCRIPT="${SCRIPT_DIR}/download_swagger_ui.py"
+    
+    if [ -f "${SWAGGER_CSS}" ] && [ -f "${SWAGGER_JS}" ]; then
+        echo -e "${GREEN}Swagger UI 静态文件已存在${NC}"
+    else
+        if [ -f "${DOWNLOAD_SCRIPT}" ]; then
+            echo -e "${YELLOW}下载 Swagger UI 静态文件...${NC}"
+            python "${DOWNLOAD_SCRIPT}" --target "${SWAGGER_DIR}"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}Swagger UI 静态文件下载完成${NC}"
+            else
+                echo -e "${YELLOW}Swagger UI 静态文件下载失败，API 文档将使用 CDN${NC}"
+            fi
+        else
+            echo -e "${YELLOW}下载脚本不存在: ${DOWNLOAD_SCRIPT}${NC}"
+            echo -e "${YELLOW}API 文档将使用 CDN 加载静态资源${NC}"
+        fi
+    fi
+    
     # 配置 Django 使用 pymysql
     echo -e "${YELLOW}配置 Django 使用 pymysql...${NC}"
     APP_INIT_FILE="${BACKEND_DIR}/application/__init__.py"
