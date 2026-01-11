@@ -21,8 +21,16 @@
 
 - 受影响规范：新增 `database-table-query` 功能规范
 - 受影响代码：
-  - 后端：新增 `core/table_query/` 模块（API、模型、Schema）
-  - 前端：新增 `web/apps/web-ele/src/views/table-query/` 页面组件
-  - 数据库：新增表查询配置表
-  - 菜单：扩展菜单管理功能
+  - 后端：新增 `core/table_query/` 模块
+    - `table_query_api.py` - API 接口（Django Ninja Router）
+    - `table_query_model.py` - 数据模型（TableQueryConfig、TableQueryLog）
+    - `table_query_schema.py` - Pydantic Schema
+  - 前端：新增 `views/table-query/` 页面
+    - `index.vue` - 主页面
+    - `data.ts` - 表单/表格配置
+    - `api/table-query/index.ts` - API 封装
+  - 数据库：新增 `table_query_config`、`table_query_log` 表
+  - 菜单：通过 management command 初始化表查询菜单
+
+详见 `design.md` 技术设计文档。
 

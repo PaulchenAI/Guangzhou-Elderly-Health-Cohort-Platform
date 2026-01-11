@@ -1,52 +1,65 @@
 # 实施任务清单
 
-## 1. 数据库设计与模型创建
-- [ ] 1.1 设计 `TableQueryConfig` 数据模型（存储表查询配置）
-- [ ] 1.2 创建数据库迁移文件
-- [ ] 1.3 运行迁移创建表结构
+## 1. 后端模型与迁移
 
-## 2. 后端 API 实现
-- [ ] 2.1 创建 `table_query` 模块目录结构
-- [ ] 2.2 实现 `table_query_model.py`（数据模型）
-- [ ] 2.3 实现 `table_query_schema.py`（Pydantic Schema）
-- [ ] 2.4 实现 `table_query_api.py`（查询 API 接口）
-  - 获取表配置列表
-  - 获取单个表配置详情
-  - 执行动态查询（支持分页、过滤、排序）
-  - 配置管理 CRUD 接口
-- [ ] 2.5 实现安全验证（SQL 注入防护、权限检查）
-- [ ] 2.6 注册路由到主 API
+- [ ] 1.1 创建 `core/table_query/` 模块目录结构
+- [ ] 1.2 实现 `table_query_model.py`（TableQueryConfig、TableQueryLog）
+- [ ] 1.3 生成并运行数据库迁移：`python manage.py makemigrations table_query`
 
-## 3. 前端页面开发
-- [ ] 3.1 创建表查询页面组件 `TableQueryView.vue`
-- [ ] 3.2 实现表选择器组件（下拉或侧边栏）
-- [ ] 3.3 实现动态查询表单组件
-- [ ] 3.4 实现数据展示表格组件（支持分页）
-- [ ] 3.5 实现数据导出功能
-- [ ] 3.6 配置前端路由
+## 2. 后端 Schema 定义
 
-## 4. 配置管理与初始化
-- [ ] 4.1 创建 JSON 配置模板文档
-- [ ] 4.2 编写配置验证逻辑
-- [ ] 4.3 开发配置导入工具/命令
-- [ ] 4.4 为已导入的医院表创建示例配置
+- [ ] 2.1 实现 `table_query_schema.py`
+  - `TableQueryConfigSchemaIn` - 配置创建输入
+  - `TableQueryConfigSchemaPatch` - 配置更新输入
+  - `TableQueryConfigSchemaOut` - 配置输出
+  - `TableQueryIn` - 查询请求输入
+  - `TableQueryFilters` - 过滤条件
+  - `ExportParams` - 导出参数
 
-## 5. 菜单系统集成
-- [ ] 5.1 扩展菜单模型（如需要）
-- [ ] 5.2 创建菜单初始化脚本
-- [ ] 5.3 添加表查询菜单项到系统菜单
-- [ ] 5.4 配置菜单权限
+## 3. 后端 API 实现
 
-## 6. 测试与文档
-- [ ] 6.1 编写后端单元测试
-- [ ] 6.2 编写 API 集成测试
-- [ ] 6.3 前端功能测试
-- [ ] 6.4 编写用户使用文档
-- [ ] 6.5 编写配置文档示例
+- [ ] 3.1 实现 `table_query_api.py`
+  - `GET /configs/` - 获取配置列表
+  - `GET /configs/{id}` - 获取配置详情
+  - `POST /configs/` - 创建配置
+  - `PUT /configs/{id}` - 更新配置
+  - `DELETE /configs/{id}` - 删除配置（软删除）
+  - `POST /query/` - 执行动态查询
+  - `POST /export/` - 导出数据（Excel/CSV）
+- [ ] 3.2 实现安全验证函数
+  - `validate_table_name()` - 表名白名单验证
+  - `validate_fields()` - 字段白名单验证
+  - `validate_order_by()` - 排序字段验证
+  - `build_where_clause()` - 安全构建 WHERE 子句
+- [ ] 3.3 在 `core/router.py` 注册 table_query_router
 
-## 7. 优化与部署
-- [ ] 7.1 性能优化（查询优化、缓存策略）
-- [ ] 7.2 安全审计
-- [ ] 7.3 部署到测试环境
-- [ ] 7.4 收集反馈并改进
+## 4. 前端 API 封装
 
+- [ ] 4.1 创建 `api/table-query/index.ts`
+  - `getTableQueryConfigs()` - 获取配置列表
+  - `getTableQueryConfig(id)` - 获取配置详情
+  - `executeTableQuery(params)` - 执行查询
+  - `exportTableData(params)` - 导出数据
+
+## 5. 前端页面开发
+
+- [ ] 5.1 创建 `views/table-query/index.vue` 主页面
+  - 表选择器（侧边栏菜单）
+  - 动态查询表单
+  - 数据表格（使用 VxeTable）
+  - 导出按钮
+- [ ] 5.2 创建 `views/table-query/data.ts`
+  - 动态生成表格列配置
+  - 动态生成查询表单 Schema
+- [ ] 5.3 配置路由 `router/routes/modules/table-query.ts`
+
+## 6. 菜单初始化
+
+- [ ] 6.1 创建 management command：`init_table_query_menus`
+- [ ] 6.2 为已导入的医院表创建初始配置
+
+## 7. 集成与验收
+
+- [ ] 7.1 前后端联调
+- [ ] 7.2 权限配置（RBAC）
+- [ ] 7.3 功能验收测试

@@ -10,8 +10,8 @@
 - 用户需求：业务人员需要快速查看和导出这些数据，但不希望为每个表开发独立页面
 
 ### 约束
-- 必须使用 Django + Django Ninja 框架
-- 前端使用 Vue 3 + Element Plus
+- 后端必须使用 Django 5.x + Django Ninja 框架，遵循 `docs/backend-api-development-guide.md` 规范
+- 前端使用 Vue 3 + Element Plus，遵循 `docs/frontend-development-guide.md` 规范
 - 需要支持 MySQL/PostgreSQL/SQL Server 多种数据库
 - 必须防止 SQL 注入
 - 大表查询需要分页和性能优化
@@ -50,6 +50,7 @@
 - 可通过 API 进行配置管理
 
 **配置结构**：
+
 ```json
 {
   "table_name": "WORKFLOW_REQUESTBASE",
@@ -62,14 +63,17 @@
       "type": "integer",
       "searchable": true,
       "sortable": true,
-      "visible": true
+      "visible": true,
+      "width": 100
     },
     {
       "name": "REQUESTNAME",
       "display_name": "请求名称",
       "type": "string",
       "searchable": true,
-      "visible": true
+      "sortable": true,
+      "visible": true,
+      "width": 200
     }
   ],
   "default_page_size": 20,
@@ -90,96 +94,348 @@
 - 排序字段验证：检查排序字段是否在白名单中
 - 过滤操作符白名单：只允许安全的操作符（=, !=, >, <, LIKE, IN, BETWEEN）
 
-### 3. 动态查询实现方案
+### 3. 后端架构方案
 
-**决策**：使用 Django 的 `connection.cursor()` + 参数化查询
+**决策**：遵循项目模块化架构，在 `core/` 下创建 `table_query` 模块
 
-**理由**：
-- Django ORM 难以动态映射未在 models.py 中定义的表
-- 直接使用 cursor 更灵活，适合动态表查询
-- 仍然使用参数化查询，保证安全性
+**目录结构**（符合 `docs/backend-api-development-guide.md` 规范）：
 
-**查询构建示例**：
+```
+backend-django/
+└── core/
+    └── table_query/                      # 新增模块
+        ├── __init__.py
+        ├── table_query_model.py          # 数据模型（TableQueryConfig）
+        ├── table_query_schema.py         # Pydantic Schema
+        └── table_query_api.py            # API 接口（Django Ninja Router）
+```
+
+**路由注册**（在 `core/router.py` 中添加）：
+
 ```python
-def build_query(config, filters, page, page_size, order_by):
-    # 验证表名
-    table_name = validate_table_name(config['table_name'])
+# core/router.py
+from core.table_query.table_query_api import router as table_query_router
+
+# 添加到 routers 列表
+routers = [
+    # ... 现有路由 ...
+    ("table-query", table_query_router, ["表查询管理"]),
+]
+```
+
+**API 端点设计**：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/table-query/configs/ | 获取配置列表 |
+| GET | /api/table-query/configs/{id} | 获取配置详情 |
+| POST | /api/table-query/configs/ | 创建配置 |
+| PUT | /api/table-query/configs/{id} | 更新配置 |
+| DELETE | /api/table-query/configs/{id} | 删除配置 |
+| POST | /api/table-query/query/ | 执行动态查询 |
+| POST | /api/table-query/export/ | 导出数据 |
+
+**动态查询实现**（使用 `connection.cursor()` + 参数化查询）：
+
+```python
+# core/table_query/table_query_api.py
+from ninja import Router
+from django.db import connection
+from common.fu_auth import BearerAuth
+from common.fu_pagination import MyPagination
+
+router = Router()
+
+
+@router.post("/query/", auth=BearerAuth(), summary="执行动态表查询")
+def execute_query(request, data: TableQueryIn):
+    """
+    执行动态表查询，支持分页、过滤、排序
+    """
+    config = TableQueryConfig.objects.get(id=data.config_id, is_active=True)
     
-    # 验证字段
-    select_fields = [f['name'] for f in config['fields'] if f['visible']]
-    select_fields = validate_fields(select_fields, config)
+    # 验证表名和字段（白名单）
+    table_name = validate_table_name(config.table_name)
+    select_fields = validate_fields(data.fields or config.visible_fields, config)
     
-    # 构建 WHERE 子句
-    where_clauses = []
-    params = []
-    for field, operator, value in filters:
-        if not is_valid_filter(field, operator, config):
-            raise ValidationError(f"Invalid filter: {field}")
-        where_clauses.append(f"{field} {operator} %s")
-        params.append(value)
+    # 构建安全的 WHERE 子句
+    where_clauses, params = build_where_clause(data.filters, config)
     
-    # 构建查询
+    # 构建查询 SQL
     sql = f"SELECT {', '.join(select_fields)} FROM {table_name}"
     if where_clauses:
         sql += f" WHERE {' AND '.join(where_clauses)}"
     
     # 验证排序字段
-    order_by = validate_order_by(order_by, config)
+    order_by = validate_order_by(data.order_by or config.default_order_by, config)
     sql += f" ORDER BY {order_by}"
     
     # 分页
+    page_size = min(data.page_size, config.max_page_size)
+    offset = (data.page - 1) * page_size
     sql += " LIMIT %s OFFSET %s"
-    params.extend([page_size, (page - 1) * page_size])
+    params.extend([page_size, offset])
     
-    return sql, params
+    # 执行查询
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        columns = [col[0] for col in cursor.description]
+        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    
+    return {"items": results, "total": get_total_count(table_name, where_clauses, params)}
 ```
 
 ### 4. 前端架构方案
 
-**决策**：使用单页面 + 动态组件
+**决策**：遵循项目前端架构，在 `views/` 下创建表查询页面
 
-**组件结构**：
+**目录结构**（符合 `docs/frontend-development-guide.md` 规范）：
+
 ```
-TableQueryView.vue (主页面)
-├── TableSelector.vue (表选择器)
-├── QueryForm.vue (查询表单 - 动态生成)
-├── DataTable.vue (数据表格)
-└── ExportButton.vue (导出按钮)
+web/apps/web-ele/src/
+├── views/
+│   └── table-query/                     # 新增页面
+│       ├── index.vue                    # 主页面
+│       ├── data.ts                      # 表单/表格配置
+│       └── components/
+│           └── query-form.vue           # 动态查询表单组件
+└── api/
+    └── table-query/
+        └── index.ts                     # API 接口封装
 ```
 
-**特点**：
-- 根据配置动态生成查询表单
-- 使用 Element Plus Table 组件
-- 支持前端分页和后端分页
-- 响应式设计，支持移动端
+**主页面实现**（使用项目标准组件）：
 
-### 5. 菜单生成方案
+```vue
+<!-- views/table-query/index.vue -->
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue';
+import { useVbenVxeGrid } from '#/adapter/vxe-table';
+import { getTableQueryConfigs, executeTableQuery } from '#/api/table-query';
+
+// 表配置列表
+const configs = ref<TableQueryConfig[]>([]);
+const selectedConfigId = ref<string>('');
+const selectedConfig = computed(() => 
+  configs.value.find(c => c.id === selectedConfigId.value)
+);
+
+// 使用 VxeTable 组件
+const [Grid, gridApi] = useVbenVxeGrid({
+  gridOptions: {
+    columns: computed(() => buildColumns(selectedConfig.value)),
+    proxyConfig: {
+      ajax: {
+        query: async ({ page }) => {
+          const result = await executeTableQuery({
+            configId: selectedConfigId.value,
+            page: page.currentPage,
+            pageSize: page.pageSize,
+            filters: currentFilters.value,
+            orderBy: currentOrderBy.value,
+          });
+          return { items: result.items, total: result.total };
+        },
+      },
+    },
+  },
+});
+
+// 切换表配置
+function handleConfigChange(configId: string) {
+  selectedConfigId.value = configId;
+  gridApi.reload();
+}
+</script>
+
+<template>
+  <Page auto-content-height>
+    <div class="flex h-full gap-4">
+      <!-- 表选择器 -->
+      <div class="w-60 flex-shrink-0">
+        <el-card header="数据表">
+          <el-menu @select="handleConfigChange">
+            <el-menu-item 
+              v-for="config in configs" 
+              :key="config.id" 
+              :index="config.id"
+            >
+              {{ config.displayName }}
+            </el-menu-item>
+          </el-menu>
+        </el-card>
+      </div>
+      
+      <!-- 数据表格 -->
+      <div class="flex-1">
+        <Grid />
+      </div>
+    </div>
+  </Page>
+</template>
+```
+
+**API 封装**：
+
+```typescript
+// api/table-query/index.ts
+import { requestClient } from '#/api/request';
+
+export interface TableQueryConfig {
+  id: string;
+  tableName: string;
+  displayName: string;
+  description: string;
+  fields: FieldConfig[];
+}
+
+export interface TableQueryParams {
+  configId: string;
+  page: number;
+  pageSize: number;
+  filters?: Record<string, any>;
+  orderBy?: string;
+}
+
+// 获取配置列表
+export function getTableQueryConfigs() {
+  return requestClient.get<TableQueryConfig[]>('/table-query/configs/');
+}
+
+// 执行查询
+export function executeTableQuery(params: TableQueryParams) {
+  return requestClient.post('/table-query/query/', params);
+}
+
+// 导出数据
+export function exportTableData(params: TableQueryParams & { format: 'excel' | 'csv' }) {
+  return requestClient.post('/table-query/export/', params, { responseType: 'blob' });
+}
+```
+
+### 5. 数据库设计
+
+**模型定义**（继承 `RootModel`）：
+
+```python
+# core/table_query/table_query_model.py
+from django.db import models
+from common.fu_model import RootModel
+
+
+class TableQueryConfig(RootModel):
+    """表查询配置模型"""
+    
+    table_name = models.CharField(
+        max_length=100, 
+        unique=True, 
+        verbose_name="数据库表名"
+    )
+    display_name = models.CharField(
+        max_length=200, 
+        verbose_name="显示名称"
+    )
+    description = models.TextField(
+        blank=True, 
+        null=True, 
+        verbose_name="描述"
+    )
+    config_json = models.JSONField(
+        default=dict, 
+        verbose_name="配置内容（JSON）"
+    )
+    is_active = models.BooleanField(
+        default=True, 
+        verbose_name="是否激活"
+    )
+    
+    class Meta:
+        db_table = "table_query_config"
+        verbose_name = "表查询配置"
+        verbose_name_plural = verbose_name
+        ordering = ["sort_order", "-create_datetime"]
+
+    def __str__(self):
+        return f"{self.display_name} ({self.table_name})"
+
+
+class TableQueryLog(RootModel):
+    """表查询日志模型"""
+    
+    OPERATION_CHOICES = [
+        ("query", "查询"),
+        ("export", "导出"),
+    ]
+    
+    user_id = models.CharField(
+        max_length=64, 
+        verbose_name="用户ID"
+    )
+    table_name = models.CharField(
+        max_length=100, 
+        verbose_name="查询的表"
+    )
+    operation = models.CharField(
+        max_length=20, 
+        choices=OPERATION_CHOICES, 
+        verbose_name="操作类型"
+    )
+    filters = models.JSONField(
+        default=dict, 
+        verbose_name="查询条件"
+    )
+    record_count = models.IntegerField(
+        default=0, 
+        verbose_name="记录数"
+    )
+    
+    class Meta:
+        db_table = "table_query_log"
+        verbose_name = "表查询日志"
+        verbose_name_plural = verbose_name
+        ordering = ["-create_datetime"]
+```
+
+### 6. 菜单生成方案
 
 **决策**：使用 Django Management Command 生成菜单
 
-**实现**：
 ```python
-# 命令：python manage.py init_table_query_menus
+# core/table_query/management/commands/init_table_query_menus.py
+from django.core.management.base import BaseCommand
+from core.menu.menu_model import Menu
+from core.table_query.table_query_model import TableQueryConfig
+
+
 class Command(BaseCommand):
+    help = "初始化表查询菜单"
+
     def handle(self, *args, **options):
-        # 读取所有表查询配置
-        configs = TableQueryConfig.objects.filter(is_active=True)
-        
         # 创建父菜单
-        parent_menu = Menu.objects.get_or_create(
+        parent_menu, _ = Menu.objects.get_or_create(
             name="数据查询",
-            path="/table-query",
-            component="TableQueryView"
+            defaults={
+                "path": "/table-query",
+                "component": "LAYOUT",
+                "icon": "ant-design:database-outlined",
+                "sort_order": 100,
+            }
         )
         
         # 为每个配置创建子菜单
+        configs = TableQueryConfig.objects.filter(is_active=True)
         for config in configs:
-            Menu.objects.get_or_create(
+            Menu.objects.update_or_create(
                 name=config.display_name,
-                path=f"/table-query/{config.id}",
                 parent=parent_menu,
-                component="TableQueryView"
+                defaults={
+                    "path": f"/table-query/{config.id}",
+                    "component": "table-query/index",
+                    "sort_order": config.sort_order,
+                }
             )
+        
+        self.stdout.write(self.style.SUCCESS(f"成功初始化 {configs.count()} 个表查询菜单"))
 ```
 
 ### 考虑的替代方案
@@ -256,10 +512,86 @@ class Command(BaseCommand):
 3. 用户培训和反馈收集
 
 ### 回滚计划
-- 删除 `table_query` 模块
-- 回滚数据库迁移
-- 删除前端页面和路由
+- 删除 `core/table_query/` 模块
+- 回滚数据库迁移：`python manage.py migrate table_query zero`
+- 删除前端页面：`views/table-query/`
 - 清理菜单配置
+
+## 配置示例
+
+### 字段类型说明
+
+| 类型 | 说明 | 前端组件 |
+|------|------|----------|
+| string | 字符串 | el-input |
+| integer | 整数 | el-input-number |
+| decimal | 小数 | el-input-number |
+| date | 日期 | el-date-picker |
+| datetime | 日期时间 | el-date-picker |
+| boolean | 布尔值 | el-switch |
+
+### 示例：工作流请求表
+
+```json
+{
+  "table_name": "WORKFLOW_REQUESTBASE",
+  "display_name": "工作流请求",
+  "description": "工作流系统请求基础数据表",
+  "fields": [
+    { "name": "REQUESTID", "display_name": "请求ID", "type": "integer", "searchable": true, "sortable": true, "visible": true, "width": 100 },
+    { "name": "REQUESTNAME", "display_name": "请求名称", "type": "string", "searchable": true, "sortable": true, "visible": true, "width": 200 },
+    { "name": "CREATER", "display_name": "创建人", "type": "string", "searchable": true, "visible": true, "width": 100 },
+    { "name": "CREATEDATE", "display_name": "创建日期", "type": "datetime", "searchable": true, "sortable": true, "visible": true, "width": 150 },
+    { "name": "STATUS", "display_name": "状态", "type": "string", "searchable": true, "sortable": true, "visible": true, "width": 100 }
+  ],
+  "default_page_size": 20,
+  "max_page_size": 100,
+  "default_order_by": "REQUESTID DESC",
+  "allowed_operations": ["query", "export"]
+}
+```
+
+### 示例：部门表
+
+```json
+{
+  "table_name": "BS_DEPARTMENT",
+  "display_name": "部门信息",
+  "description": "医院部门基础信息表",
+  "fields": [
+    { "name": "ID", "display_name": "部门ID", "type": "integer", "searchable": true, "sortable": true, "visible": true },
+    { "name": "DEPARTMENTNAME", "display_name": "部门名称", "type": "string", "searchable": true, "sortable": true, "visible": true },
+    { "name": "DEPARTMENTMARK", "display_name": "部门编码", "type": "string", "searchable": true, "visible": true },
+    { "name": "CANCELED", "display_name": "是否停用", "type": "boolean", "searchable": true, "sortable": true, "visible": true }
+  ],
+  "default_page_size": 50,
+  "max_page_size": 200,
+  "default_order_by": "ID ASC",
+  "allowed_operations": ["query", "export"]
+}
+```
+
+### 示例：物资表
+
+```json
+{
+  "table_name": "WM_MATERIAL",
+  "display_name": "物资信息",
+  "description": "仓库物资管理表",
+  "fields": [
+    { "name": "ID", "display_name": "物资ID", "type": "integer", "searchable": true, "sortable": true, "visible": true },
+    { "name": "MATERIAL_NAME", "display_name": "物资名称", "type": "string", "searchable": true, "sortable": true, "visible": true },
+    { "name": "SPECIFICATION", "display_name": "规格", "type": "string", "searchable": true, "visible": true },
+    { "name": "UNIT", "display_name": "单位", "type": "string", "visible": true },
+    { "name": "PRICE", "display_name": "价格", "type": "decimal", "sortable": true, "visible": true },
+    { "name": "CATEGORY", "display_name": "分类", "type": "string", "searchable": true, "sortable": true, "visible": true }
+  ],
+  "default_page_size": 30,
+  "max_page_size": 100,
+  "default_order_by": "ID DESC",
+  "allowed_operations": ["query", "export"]
+}
+```
 
 ## 待决问题
 
@@ -269,4 +601,3 @@ class Command(BaseCommand):
 - [ ] 大表查询是否需要异步处理（Celery 任务）？
 - [ ] 是否需要支持数据字段的国际化？
 - [ ] 配置是否需要支持导入/导出功能（备份和迁移）？
-

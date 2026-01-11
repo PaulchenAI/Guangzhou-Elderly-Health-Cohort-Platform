@@ -24,6 +24,9 @@ coverage
 **/backend-mock/data
 
 # local env files
+.env
+.env.*
+!.env.example
 ./web/.env.local
 ./web/.env.*.local
 ./web/.eslintcache

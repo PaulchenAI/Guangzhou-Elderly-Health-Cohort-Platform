@@ -182,3 +182,7 @@ web/
 ### API 文档
 - **Swagger UI**: `http://localhost:8000/api/docs`
 - **ReDoc**: `http://localhost:8000/api/redoc`
+
+### 开发规范文档
+- **前端开发规范**: `docs/frontend-development-guide.md`
+- **后端开发规范**: `docs/backend-api-development-guide.md`
