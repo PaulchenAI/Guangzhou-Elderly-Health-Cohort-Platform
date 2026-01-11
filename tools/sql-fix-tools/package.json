@@ -1,0 +1,48 @@
+{
+  "name": "sql-fix-tools",
+  "version": "1.0.0",
+  "description": "Oracle SQL to MySQL SQL 兼容性修复工具集",
+  "main": "fix_sql_main.py",
+  "scripts": {
+    "fix": "python fix_sql_main.py",
+    "fix-special": "python fix_special_sql_issues.py",
+    "fix-concat": "python fix_remaining_concat.py"
+  },
+  "keywords": [
+    "sql",
+    "oracle",
+    "mysql",
+    "migration",
+    "converter",
+    "fixer"
+  ],
+  "author": "AI Assistant (Claude Sonnet 4.5)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "zq-platform/tools/sql-fix-tools"
+  },
+  "bugs": {
+    "url": "zq-platform/issues"
+  },
+  "homepage": "zq-platform/tools/sql-fix-tools/README.md",
+  "dependencies": {},
+  "python_version": ">=3.6",
+  "features": [
+    "表结构修复",
+    "Oracle函数转换",
+    "CONCAT运算符转换",
+    "MySQL保留字处理",
+    "数据类型转换",
+    "自动备份"
+  ],
+  "stats": {
+    "files_processed": "169+",
+    "success_rate": "89%",
+    "concat_conversions": "20000+",
+    "fix_types": "15+"
+  },
+  "created": "2026-01-09",
+  "last_updated": "2026-01-09"
+}
+

@@ -1,0 +1,34 @@
+# SQL修复工具产生的文件
+*.backup
+*.backup2
+*.backup3
+*.backup_final
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 测试文件
+test_*.py
+test_*.sql
+
+# 日志文件
+*.log
+import_*.log
+
+# 修复报告
+sql_fix_report_*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 临时文件
+.DS_Store
+Thumbs.db
+
