@@ -1,5 +1,9 @@
 # 设计文档：数据库表查询管理系统
 
+> **参考规范**：
+> - 后端：`docs/backend-api-development-guide.md`
+> - 前端：`docs/frontend-development-guide.md`
+
 ## 上下文
 
 项目已经完成了从 Oracle 到 MySQL 的大量医院数据迁移（约 100+ 张表），这些表包含患者、医嘱、护理、工作流等各类业务数据。目前这些数据只是存储在数据库中，缺乏一个统一的查询和展示界面。
@@ -116,11 +120,8 @@ backend-django/
 # core/router.py
 from core.table_query.table_query_api import router as table_query_router
 
-# 添加到 routers 列表
-routers = [
-    # ... 现有路由 ...
-    ("table-query", table_query_router, ["表查询管理"]),
-]
+# 在现有路由后添加
+core_router.add_router("", table_query_router, tags=["Core-TableQuery"])
 ```
 
 **API 端点设计**：
@@ -138,25 +139,49 @@ routers = [
 **动态查询实现**（使用 `connection.cursor()` + 参数化查询）：
 
 ```python
-# core/table_query/table_query_api.py
-from ninja import Router
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Table Query API - 表查询管理接口
+提供动态表查询、配置管理和数据导出功能
+"""
 from django.db import connection
-from common.fu_auth import BearerAuth
+from django.shortcuts import get_object_or_404
+from ninja import Router
+from ninja.errors import HttpError
+
+from common.fu_crud import create, delete
 from common.fu_pagination import MyPagination
+from common.fu_schema import response_success
+from core.table_query.table_query_model import TableQueryConfig, TableQueryLog
+from core.table_query.table_query_schema import (
+    TableQueryConfigSchemaIn,
+    TableQueryConfigSchemaOut,
+    TableQueryIn,
+    TableQueryResult,
+)
 
 router = Router()
 
 
-@router.post("/query/", auth=BearerAuth(), summary="执行动态表查询")
+@router.post("/table-query/query", response=TableQueryResult, summary="执行动态表查询")
 def execute_query(request, data: TableQueryIn):
     """
     执行动态表查询，支持分页、过滤、排序
+    
+    安全措施：
+    - 表名白名单验证
+    - 字段白名单验证
+    - 参数化查询防止 SQL 注入
     """
-    config = TableQueryConfig.objects.get(id=data.config_id, is_active=True)
+    config = get_object_or_404(TableQueryConfig, id=data.config_id, is_deleted=False)
+    
+    if not config.is_active:
+        raise HttpError(400, "该表查询配置已禁用")
     
     # 验证表名和字段（白名单）
     table_name = validate_table_name(config.table_name)
-    select_fields = validate_fields(data.fields or config.visible_fields, config)
+    select_fields = validate_fields(data.fields or get_visible_fields(config), config)
     
     # 构建安全的 WHERE 子句
     where_clauses, params = build_where_clause(data.filters, config)
@@ -167,11 +192,12 @@ def execute_query(request, data: TableQueryIn):
         sql += f" WHERE {' AND '.join(where_clauses)}"
     
     # 验证排序字段
-    order_by = validate_order_by(data.order_by or config.default_order_by, config)
+    order_by = validate_order_by(data.order_by or config.config_json.get('default_order_by'), config)
     sql += f" ORDER BY {order_by}"
     
     # 分页
-    page_size = min(data.page_size, config.max_page_size)
+    max_page_size = config.config_json.get('max_page_size', 100)
+    page_size = min(data.page_size, max_page_size)
     offset = (data.page - 1) * page_size
     sql += " LIMIT %s OFFSET %s"
     params.extend([page_size, offset])
@@ -182,7 +208,18 @@ def execute_query(request, data: TableQueryIn):
         columns = [col[0] for col in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
     
-    return {"items": results, "total": get_total_count(table_name, where_clauses, params)}
+    # 记录查询日志
+    TableQueryLog.objects.create(
+        user_id=str(request.auth.id),
+        table_name=table_name,
+        operation="query",
+        filters=data.filters or {},
+        record_count=len(results),
+        sys_creator=request.auth,
+    )
+    
+    total = get_total_count(table_name, where_clauses, params[:-2])
+    return {"items": results, "total": total}
 ```
 
 ### 4. 前端架构方案
@@ -196,56 +233,116 @@ web/apps/web-ele/src/
 ├── views/
 │   └── table-query/                     # 新增页面
 │       ├── index.vue                    # 主页面
-│       ├── data.ts                      # 表单/表格配置
-│       └── components/
+│       ├── data.ts                      # 表单/表格配置（useColumns, useSearchFormSchema）
+│       └── modules/
 │           └── query-form.vue           # 动态查询表单组件
 └── api/
-    └── table-query/
-        └── index.ts                     # API 接口封装
+    └── core/
+        └── table-query.ts               # API 接口封装（与其他 core API 放一起）
 ```
 
 **主页面实现**（使用项目标准组件）：
 
 ```vue
 <!-- views/table-query/index.vue -->
-<script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+<script lang="ts" setup>
+import type { VxeTableGridOptions } from '#/adapter/vxe-table';
+import type { TableQueryConfig } from '#/api/core/table-query';
+
+import { computed, onMounted, ref } from 'vue';
+
+import { Page } from '@vben/common-ui';
+import { $t } from '@vben/locales';
+
+import { ElCard, ElMenu, ElMenuItem, ElMessage } from 'element-plus';
+
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
-import { getTableQueryConfigs, executeTableQuery } from '#/api/table-query';
+import {
+  executeTableQueryApi,
+  exportTableDataApi,
+  getTableQueryConfigsApi,
+} from '#/api/core/table-query';
+
+import { buildColumns, useSearchFormSchema } from './data';
+
+defineOptions({ name: 'TableQuery' });
 
 // 表配置列表
 const configs = ref<TableQueryConfig[]>([]);
 const selectedConfigId = ref<string>('');
-const selectedConfig = computed(() => 
-  configs.value.find(c => c.id === selectedConfigId.value)
+const currentFilters = ref<Record<string, any>>({});
+
+const selectedConfig = computed(() =>
+  configs.value.find((c) => c.id === selectedConfigId.value),
+);
+
+// 动态生成列配置
+const columns = computed(() => buildColumns(selectedConfig.value));
+
+// 动态生成搜索表单
+const searchFormSchema = computed(() =>
+  useSearchFormSchema(selectedConfig.value),
 );
 
 // 使用 VxeTable 组件
 const [Grid, gridApi] = useVbenVxeGrid({
   gridOptions: {
-    columns: computed(() => buildColumns(selectedConfig.value)),
+    columns: columns.value,
     proxyConfig: {
       ajax: {
         query: async ({ page }) => {
-          const result = await executeTableQuery({
+          if (!selectedConfigId.value) {
+            return { items: [], total: 0 };
+          }
+          const result = await executeTableQueryApi({
             configId: selectedConfigId.value,
             page: page.currentPage,
             pageSize: page.pageSize,
             filters: currentFilters.value,
-            orderBy: currentOrderBy.value,
           });
           return { items: result.items, total: result.total };
         },
       },
     },
   },
+  formOptions: {
+    schema: searchFormSchema.value,
+  },
 });
 
 // 切换表配置
 function handleConfigChange(configId: string) {
   selectedConfigId.value = configId;
+  currentFilters.value = {};
   gridApi.reload();
 }
+
+// 导出数据
+async function handleExport(format: 'excel' | 'csv') {
+  if (!selectedConfigId.value) {
+    ElMessage.warning('请先选择数据表');
+    return;
+  }
+  try {
+    await exportTableDataApi({
+      configId: selectedConfigId.value,
+      filters: currentFilters.value,
+      format,
+    });
+    ElMessage.success('导出成功');
+  } catch {
+    ElMessage.error('导出失败');
+  }
+}
+
+// 加载配置列表
+onMounted(async () => {
+  const result = await getTableQueryConfigsApi();
+  configs.value = result;
+  if (result.length > 0) {
+    selectedConfigId.value = result[0].id;
+  }
+});
 </script>
 
 <template>
@@ -253,19 +350,22 @@ function handleConfigChange(configId: string) {
     <div class="flex h-full gap-4">
       <!-- 表选择器 -->
       <div class="w-60 flex-shrink-0">
-        <el-card header="数据表">
-          <el-menu @select="handleConfigChange">
-            <el-menu-item 
-              v-for="config in configs" 
-              :key="config.id" 
+        <ElCard header="数据表">
+          <ElMenu
+            :default-active="selectedConfigId"
+            @select="handleConfigChange"
+          >
+            <ElMenuItem
+              v-for="config in configs"
+              :key="config.id"
               :index="config.id"
             >
               {{ config.displayName }}
-            </el-menu-item>
-          </el-menu>
-        </el-card>
+            </ElMenuItem>
+          </ElMenu>
+        </ElCard>
       </div>
-      
+
       <!-- 数据表格 -->
       <div class="flex-1">
         <Grid />
@@ -278,15 +378,36 @@ function handleConfigChange(configId: string) {
 **API 封装**：
 
 ```typescript
-// api/table-query/index.ts
+// api/core/table-query.ts
 import { requestClient } from '#/api/request';
+
+/**
+ * 表查询相关类型定义
+ */
+export interface FieldConfig {
+  name: string;
+  displayName: string;
+  type: 'string' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+  searchable?: boolean;
+  sortable?: boolean;
+  visible?: boolean;
+  width?: number;
+}
 
 export interface TableQueryConfig {
   id: string;
   tableName: string;
   displayName: string;
-  description: string;
-  fields: FieldConfig[];
+  description?: string;
+  configJson: {
+    fields: FieldConfig[];
+    defaultPageSize: number;
+    maxPageSize: number;
+    defaultOrderBy: string;
+    allowedOperations: string[];
+  };
+  isActive: boolean;
+  sysCreateDatetime?: string;
 }
 
 export interface TableQueryParams {
@@ -297,19 +418,41 @@ export interface TableQueryParams {
   orderBy?: string;
 }
 
-// 获取配置列表
-export function getTableQueryConfigs() {
-  return requestClient.get<TableQueryConfig[]>('/table-query/configs/');
+export interface TableQueryResult {
+  items: Record<string, any>[];
+  total: number;
 }
 
-// 执行查询
-export function executeTableQuery(params: TableQueryParams) {
-  return requestClient.post('/table-query/query/', params);
+/**
+ * 获取表查询配置列表
+ */
+export function getTableQueryConfigsApi() {
+  return requestClient.get<TableQueryConfig[]>('/core/table-query/configs');
 }
 
-// 导出数据
-export function exportTableData(params: TableQueryParams & { format: 'excel' | 'csv' }) {
-  return requestClient.post('/table-query/export/', params, { responseType: 'blob' });
+/**
+ * 获取单个配置详情
+ */
+export function getTableQueryConfigApi(id: string) {
+  return requestClient.get<TableQueryConfig>(`/core/table-query/configs/${id}`);
+}
+
+/**
+ * 执行动态表查询
+ */
+export function executeTableQueryApi(params: TableQueryParams) {
+  return requestClient.post<TableQueryResult>('/core/table-query/query', params);
+}
+
+/**
+ * 导出表数据
+ */
+export function exportTableDataApi(
+  params: TableQueryParams & { format: 'excel' | 'csv' },
+) {
+  return requestClient.post('/core/table-query/export', params, {
+    responseType: 'blob',
+  });
 }
 ```
 
@@ -318,49 +461,78 @@ export function exportTableData(params: TableQueryParams & { format: 'excel' | '
 **模型定义**（继承 `RootModel`）：
 
 ```python
-# core/table_query/table_query_model.py
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Table Query Model - 表查询模型
+用于存储表查询配置和操作日志
+"""
 from django.db import models
 from common.fu_model import RootModel
 
 
 class TableQueryConfig(RootModel):
-    """表查询配置模型"""
+    """
+    表查询配置模型 - 存储可查询表的配置信息
+    
+    配置内容（config_json）包含：
+    - fields: 字段配置列表
+    - default_page_size: 默认分页大小
+    - max_page_size: 最大分页大小
+    - default_order_by: 默认排序
+    - allowed_operations: 允许的操作（query/export）
+    """
     
     table_name = models.CharField(
         max_length=100, 
-        unique=True, 
-        verbose_name="数据库表名"
+        unique=True,
+        db_index=True,
+        help_text="数据库表名"
     )
     display_name = models.CharField(
         max_length=200, 
-        verbose_name="显示名称"
+        help_text="显示名称"
     )
     description = models.TextField(
         blank=True, 
         null=True, 
-        verbose_name="描述"
+        help_text="表描述"
     )
     config_json = models.JSONField(
         default=dict, 
-        verbose_name="配置内容（JSON）"
+        help_text="配置内容（JSON格式）"
     )
     is_active = models.BooleanField(
-        default=True, 
-        verbose_name="是否激活"
+        default=True,
+        db_index=True,
+        help_text="是否激活"
     )
     
     class Meta:
         db_table = "table_query_config"
         verbose_name = "表查询配置"
         verbose_name_plural = verbose_name
-        ordering = ["sort_order", "-create_datetime"]
+        ordering = ["-sort", "-sys_create_datetime"]
 
     def __str__(self):
         return f"{self.display_name} ({self.table_name})"
+    
+    def get_visible_fields(self):
+        """获取可见字段列表"""
+        fields = self.config_json.get('fields', [])
+        return [f['name'] for f in fields if f.get('visible', True)]
+    
+    def get_searchable_fields(self):
+        """获取可搜索字段列表"""
+        fields = self.config_json.get('fields', [])
+        return [f['name'] for f in fields if f.get('searchable', False)]
 
 
 class TableQueryLog(RootModel):
-    """表查询日志模型"""
+    """
+    表查询日志模型 - 记录查询和导出操作
+    用于安全审计和使用统计
+    """
     
     OPERATION_CHOICES = [
         ("query", "查询"),
@@ -368,32 +540,39 @@ class TableQueryLog(RootModel):
     ]
     
     user_id = models.CharField(
-        max_length=64, 
-        verbose_name="用户ID"
+        max_length=64,
+        db_index=True,
+        help_text="操作用户ID"
     )
     table_name = models.CharField(
-        max_length=100, 
-        verbose_name="查询的表"
+        max_length=100,
+        db_index=True,
+        help_text="查询的表名"
     )
     operation = models.CharField(
         max_length=20, 
-        choices=OPERATION_CHOICES, 
-        verbose_name="操作类型"
+        choices=OPERATION_CHOICES,
+        db_index=True,
+        help_text="操作类型"
     )
     filters = models.JSONField(
         default=dict, 
-        verbose_name="查询条件"
+        help_text="查询条件"
     )
     record_count = models.IntegerField(
         default=0, 
-        verbose_name="记录数"
+        help_text="返回/导出记录数"
     )
     
     class Meta:
         db_table = "table_query_log"
         verbose_name = "表查询日志"
         verbose_name_plural = verbose_name
-        ordering = ["-create_datetime"]
+        ordering = ["-sys_create_datetime"]
+        indexes = [
+            models.Index(fields=['user_id', 'table_name']),
+            models.Index(fields=['operation', 'sys_create_datetime']),
+        ]
 ```
 
 ### 6. 菜单生成方案
@@ -401,6 +580,11 @@ class TableQueryLog(RootModel):
 **决策**：使用 Django Management Command 生成菜单
 
 ```python
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+初始化表查询菜单命令
+"""
 # core/table_query/management/commands/init_table_query_menus.py
 from django.core.management.base import BaseCommand
 from core.menu.menu_model import Menu
@@ -412,30 +596,47 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # 创建父菜单
-        parent_menu, _ = Menu.objects.get_or_create(
-            name="数据查询",
+        parent_menu, created = Menu.objects.get_or_create(
+            path="/table-query",
             defaults={
-                "path": "/table-query",
+                "name": "TableQuery",
+                "title": "数据查询",
+                "type": "catalog",
                 "component": "LAYOUT",
                 "icon": "ant-design:database-outlined",
-                "sort_order": 100,
+                "order": 100,
             }
         )
         
+        if created:
+            self.stdout.write(self.style.SUCCESS("创建父菜单：数据查询"))
+        
         # 为每个配置创建子菜单
-        configs = TableQueryConfig.objects.filter(is_active=True)
-        for config in configs:
-            Menu.objects.update_or_create(
-                name=config.display_name,
-                parent=parent_menu,
+        configs = TableQueryConfig.objects.filter(is_active=True, is_deleted=False)
+        created_count = 0
+        
+        for idx, config in enumerate(configs):
+            menu, created = Menu.objects.update_or_create(
+                path=f"/table-query/{config.id}",
                 defaults={
-                    "path": f"/table-query/{config.id}",
-                    "component": "table-query/index",
-                    "sort_order": config.sort_order,
+                    "name": f"TableQuery_{config.table_name}",
+                    "title": config.display_name,
+                    "type": "menu",
+                    "parent": parent_menu,
+                    "component": "/table-query/index",
+                    "order": idx,
+                    "query": {"configId": str(config.id)},
+                    "keepAlive": True,
                 }
             )
+            if created:
+                created_count += 1
         
-        self.stdout.write(self.style.SUCCESS(f"成功初始化 {configs.count()} 个表查询菜单"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"菜单初始化完成：共 {configs.count()} 个配置，新增 {created_count} 个菜单"
+            )
+        )
 ```
 
 ### 考虑的替代方案
@@ -593,9 +794,53 @@ class Command(BaseCommand):
 }
 ```
 
+## 实施过程中的额外修改
+
+### 1. MySQL 保留关键字处理
+
+**问题**：部分表的字段名使用了 MySQL 保留关键字（如 `partition`、`explain`），导致 SQL 语法错误。
+
+**解决方案**：添加 `quote_identifier()` 函数，对所有表名和字段名使用反引号转义：
+
+```python
+def quote_identifier(name: str) -> str:
+    """使用反引号转义标识符（表名/字段名）"""
+    name = name.replace('`', '')
+    return f'`{name}`'
+```
+
+修改位置：`table_query_api.py` 中的所有 SQL 构建函数。
+
+### 2. VxeTable 组件适配
+
+**问题**：直接导入 `vxe-table` 的组件导致样式文件找不到的错误。
+
+**解决方案**：使用项目已有的 `useVbenVxeGrid` 适配器，通过 `gridApi.setGridOptions({ columns })` 动态更新列配置。
+
+### 3. 配置 JSON 键名兼容性
+
+**问题**：配置 JSON 中的键名存在 `camelCase` 和 `snake_case` 不一致的问题。
+
+**解决方案**：API 层同时支持两种格式：
+
+```python
+# 同时支持 camelCase 和 snake_case
+order_by = config.config_json.get('defaultOrderBy') or config.config_json.get('default_order_by')
+```
+
+### 4. 批量配置创建工具
+
+新增 `batch_create_table_configs` 管理命令，支持：
+- `--list`：列出所有可配置的表
+- `--prefix PREFIX`：按表名前缀过滤
+- `--all`：处理所有表
+- `--update`：更新现有配置
+
+**实施结果**：为数据库中的 952 个表全部创建了查询配置。
+
 ## 待决问题
 
-- [ ] 是否需要支持数据导出审计（记录谁导出了哪些数据）？
+- [x] ~~是否需要支持数据导出审计？~~ 已实现 `TableQueryLog` 模型记录导出操作
 - [ ] 是否需要支持查询结果缓存？缓存策略如何设计？
 - [ ] 是否需要支持自定义查询（用户可以编写 SQL）？如何确保安全？
 - [ ] 大表查询是否需要异步处理（Celery 任务）？

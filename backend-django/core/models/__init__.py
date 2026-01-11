@@ -12,6 +12,6 @@ from core.post.post_model import Post
 from core.menu.menu_model import Menu
 from core.dict.dict_model import Dict
 from core.dict_item.dict_item_model import DictItem
-
+from core.table_query.table_query_model import TableQueryConfig, TableQueryLog
 
 
