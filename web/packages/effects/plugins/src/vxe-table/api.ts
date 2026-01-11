@@ -68,6 +68,10 @@ export class VxeGridApi<T extends Record<string, any> = any> {
   }
 
   async query(params: Record<string, any> = {}) {
+    // 如果还没挂载，等待挂载完成
+    if (!this.isMounted) {
+      await this.stateHandler.waitForCondition();
+    }
     try {
       await this.grid.commitProxy('query', toRaw(params));
     } catch (error) {

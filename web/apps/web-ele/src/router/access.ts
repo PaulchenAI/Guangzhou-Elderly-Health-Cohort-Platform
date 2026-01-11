@@ -20,6 +20,9 @@ async function generateAccess(options: GenerateMenuAndRoutesOptions) {
   const layoutMap: ComponentRecordType = {
     BasicLayout,
     IFrameView,
+    // 兼容数据库中可能存在的 Layout/LAYOUT 写法
+    Layout: BasicLayout,
+    LAYOUT: BasicLayout,
   };
 
   return await generateAccessible(preferences.app.accessMode, {
