@@ -1,0 +1,86 @@
+# 任务清单
+
+## 1. 基础设施
+
+- [x] 1.1 创建 `core/survey/` 模块目录结构
+- [x] 1.2 创建外部 API 客户端 `survey_api_client.py`（含 JWT 认证）
+- [x] 1.3 添加配置项到 `settings.py`（从 `.env` 读取 `SURVEY_API_URL`, `SURVEY_API_ADMIN`, `SURVEY_API_PASSWORD`）
+
+## 2. Schema 同步
+
+- [x] 2.1 实现 JWT Token 获取（`/api/auth/token`）和自动刷新
+- [x] 2.2 实现问卷类型列表获取 (`/api/survey-types`)
+- [x] 2.3 实现问卷 Schema 获取 (`/api/survey-schema/{type}`)
+- [x] 2.4 创建 Schema 解析器，将外部 Schema 转换为 Django 字段定义
+- [x] 2.5 创建 `SurveySchemaConfig` 模型存储 Schema 元数据
+- [x] 2.6 实现 `sync_survey_schemas` 管理命令
+
+## 3. 动态模型生成
+
+- [x] 3.1 创建 `SurveyRecord` 基础模型（使用 JSON 字段存储问卷数据）
+- [x] 3.2 创建 `SurveyImportLog` 导入日志模型
+- [x] 3.3 实现模型字段动态映射
+
+## 4. 数据导入
+
+- [x] 4.1 实现外部 API 数据查询 (`/api/search`，需要 JWT 认证)
+- [x] 4.2 创建数据转换器（外部格式 → 本地格式）
+- [x] 4.3 实现批量数据导入逻辑
+- [x] 4.4 实现增量导入（基于 surveyId 去重）
+- [x] 4.5 实现 `import_survey_data` 管理命令
+- [x] 4.6 添加导入进度显示和日志记录
+
+## 5. 定时任务
+
+- [x] 5.1 创建定时任务函数 `scheduler/module/survey_tasks.py`
+- [x] 5.2 实现 `sync_survey_schemas_task` 定时同步 Schema 任务
+- [x] 5.3 实现 `import_survey_data_task` 定时增量导入任务
+- [x] 5.4 创建默认的 `SchedulerJob` 记录（通过管理命令或 Fixture）
+
+## 6. 查询 API
+
+- [x] 6.1 创建问卷数据查询 API (`survey_api.py`)
+- [x] 6.2 实现问卷记录列表、详情、导出接口
+- [x] 6.3 实现 Schema 列表、详情接口
+- [x] 6.4 注册路由到 `core/router.py`
+
+## 7. 前端页面
+
+- [x] 7.1 创建前端 API 文件 `web/apps/web-ele/src/api/core/survey.ts`
+- [x] 7.2 创建问卷查询页面 `web/apps/web-ele/src/views/survey/index.vue`（参考 `table-query/index.vue`）
+- [x] 7.3 实现左侧问卷类型选择器
+- [x] 7.4 实现右侧动态表格展示（根据 Schema 动态生成列）
+- [x] 7.5 实现搜索表单（根据可搜索字段动态生成）
+- [x] 7.6 实现数据导出功能
+
+## 8. 菜单初始化
+
+- [x] 8.1 创建 `init_survey_menus` 管理命令
+- [x] 8.2 创建"问卷管理"父菜单
+- [x] 8.3 创建"问卷数据查询"子菜单
+
+## 9. 数据展示优化
+
+- [x] 9.1 修改后端 API 展平问卷数据（survey_data + scores）
+- [x] 9.2 前端表格支持展开行显示子问卷数据
+- [x] 9.3 动态列生成支持所有问卷选项字段
+- [x] 9.4 修复后端 Schema 字段名（schema_definition → schema_json）
+- [x] 9.5 修复选项值类型不匹配问题（数字/字符串转换）
+- [x] 9.6 动态隐藏无子问卷数据的展开列
+- [x] 9.7 户外活动：支持数组类型子问卷（activities 表格显示）
+- [x] 9.8 户外活动：从 summary 提取汇总字段到主表
+- [x] 9.9 空闲活动：从 participationLevel 提取评估字段
+- [x] 9.10 GPM/NRS：将 painLevel 映射到诊断结果
+- [x] 9.11 修复导出功能字段名兼容（name/title vs fieldName/label）
+- [x] 9.12 前端字段名中文翻译（户外活动相关字段）
+- [x] 9.13 前端活动类别数字映射到文字标签
+- [x] 9.14 导出支持文案/数值两种模式（value_mode: label/value）
+- [x] 9.15 导出字段与前端表格显示列保持一致（含汇总字段）
+- [x] 9.16 户外活动子表单（activities）合并导出为多行
+- [x] 9.17 性别字段文案映射（male/female → 男/女）
+
+## 10. 测试与文档
+
+- [ ] 10.1 编写单元测试
+- [ ] 10.2 编写集成测试（模拟外部 API）
+- [ ] 10.3 更新 API 文档

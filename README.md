@@ -38,7 +38,7 @@ zq-platform is a comprehensive enterprise-level admin management system solution
 
 - 📋 **Database Table Query** - Configuration-driven dynamic table querying without code changes
 - 🔄 **SQL Import** - Oracle to MySQL SQL conversion and batch import with status tracking
-- 📊 **Survey Integration** - External survey API integration for questionnaire data management (In Progress)
+- 📊 **Survey Integration** - External survey API integration for questionnaire data management with flexible export options
 
 ## 🏗️ Tech Stack
 
@@ -91,7 +91,8 @@ zq-platform/
 │   │   ├── redis_manager/  # Redis Management
 │   │   ├── database_monitor/ # Database Monitoring
 │   │   ├── database_manager/ # Database Management
-│   │   └── table_query/    # Dynamic Table Query
+│   │   ├── table_query/    # Dynamic Table Query
+│   │   └── survey/         # Survey Data Management
 │   ├── scheduler/          # Task Scheduling Module
 │   ├── common/             # Common Modules
 │   │   ├── fu_crud.py      # Generic CRUD Operations
@@ -130,8 +131,7 @@ zq-platform/
 │   │   ├── database-table-query/
 │   │   └── sql-import/
 │   └── changes/            # Change Proposals
-│       ├── add-survey-api-integration/
-│       └── archive/
+│       └── archive/        # Completed changes
 │
 └── docs/                   # Documentation
     ├── frontend-development-guide.md
@@ -322,6 +322,26 @@ python manage.py convert_sql input.sql -o output/
 
 # Import converted files
 python manage.py import_sql converted/ --all --resume
+```
+
+#### Survey Data Integration
+External survey API integration for questionnaire data management:
+- **Schema Sync**: Auto-sync questionnaire schema definitions from external API
+- **Data Import**: Batch and incremental import with JWT authentication
+- **Dynamic Display**: Schema-driven table columns and search forms
+- **Flexible Export**: Export with label (text) or value (numeric) mode
+- **Sub-form Support**: Expand nested data (e.g., outdoor activities) in exports
+- **Scheduled Tasks**: Automatic schema sync and data import via APScheduler
+
+```bash
+# Sync questionnaire schemas from external API
+python manage.py sync_survey_schemas
+
+# Import questionnaire data (full or incremental)
+python manage.py import_survey_data --incremental
+
+# Initialize survey management menus
+python manage.py init_survey_menus
 ```
 
 ## 🔐 API Documentation

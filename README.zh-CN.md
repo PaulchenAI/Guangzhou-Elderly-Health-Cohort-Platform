@@ -38,7 +38,7 @@ zq-platform 是一个功能完善的企业级后台管理系统解决方案，�
 
 - 📋 **数据库表查询** - 配置化驱动的动态表查询，无需编写代码
 - 🔄 **SQL 导入** - Oracle 到 MySQL 的 SQL 转换和批量导入，支持状态追踪
-- 📊 **问卷调查集成** - 外部问卷 API 对接，用于问卷数据管理（开发中）
+- 📊 **问卷数据集成** - 外部问卷 API 对接，支持灵活的导出选项
 
 ## 🏗️ 技术栈
 
@@ -91,7 +91,8 @@ zq-platform/
 │   │   ├── redis_manager/  # Redis 管理
 │   │   ├── database_monitor/ # 数据库监控
 │   │   ├── database_manager/ # 数据库管理
-│   │   └── table_query/    # 动态表查询
+│   │   ├── table_query/    # 动态表查询
+│   │   └── survey/         # 问卷数据管理
 │   ├── scheduler/          # 任务调度模块
 │   ├── common/             # 公共模块
 │   │   ├── fu_crud.py      # 通用 CRUD 操作
@@ -130,8 +131,7 @@ zq-platform/
 │   │   ├── database-table-query/
 │   │   └── sql-import/
 │   └── changes/            # 变更提案
-│       ├── add-survey-api-integration/
-│       └── archive/
+│       └── archive/        # 已完成的变更
 │
 └── docs/                   # 文档
     ├── frontend-development-guide.md
@@ -322,6 +322,26 @@ python manage.py convert_sql input.sql -o output/
 
 # 导入转换后的文件
 python manage.py import_sql converted/ --all --resume
+```
+
+#### 问卷数据集成
+外部问卷 API 对接，用于问卷数据管理：
+- **Schema 同步**: 自动从外部 API 同步问卷结构定义
+- **数据导入**: 支持批量和增量导入，使用 JWT 认证
+- **动态展示**: Schema 驱动的动态表格列和搜索表单
+- **灵活导出**: 支持文案模式和数值模式导出
+- **子表单支持**: 展开嵌套数据（如户外活动记录）导出
+- **定时任务**: 通过 APScheduler 自动同步 Schema 和导入数据
+
+```bash
+# 从外部 API 同步问卷 Schema
+python manage.py sync_survey_schemas
+
+# 导入问卷数据（全量或增量）
+python manage.py import_survey_data --incremental
+
+# 初始化问卷管理菜单
+python manage.py init_survey_menus
 ```
 
 ## 🔐 API 文档

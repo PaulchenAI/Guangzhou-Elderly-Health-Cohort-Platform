@@ -52,14 +52,35 @@
 - 支持离线查询和验证
 - 便于追踪 Schema 变更历史
 
-### 决策 3：数据去重 - 基于 surveyId
+### 决策 3：数据去重 - 基于外部数据库 ID
 
-**选择**：使用外部系统的 `surveyId` 作为唯一标识
+**选择**：使用 `{survey_type}_{external_id}` 组合作为本地唯一标识
+
+**背景说明**：
+- 外部系统的 `survey_id` 字段代表**问卷批次**（如 `"性格特征-张"`），而非全局唯一ID
+- 同一批次下可能有多个不同患者的问卷记录
+- 外部 API 返回的 `id` 字段才是数据库主键，保证全局唯一
 
 **理由**：
-- 外部系统已保证 `surveyId` 唯一性
+- 使用 `{survey_type}_{id}` 确保跨问卷类型的全局唯一性
 - 支持增量导入时的去重判断
-- 便于数据溯源
+- 全量导入时使用 `update_or_create` 避免重复键冲突
+- 便于数据溯源（可从本地 survey_id 反推外部系统记录）
+
+**数据结构示例**：
+```json
+// 外部 API 返回的数据
+{
+  "id": 785,                       // 数据库主键（唯一）
+  "survey_type": "personality",
+  "survey_id": "性格特征-张",      // 问卷批次（不唯一）
+  "patient_name": "钟宝根",
+  "data": { ... }
+}
+
+// 本地存储的 survey_id
+"personality_785"  // 组合格式：{survey_type}_{id}
+```
 
 ### 决策 4：JWT 认证 - Token 缓存 + 自动刷新
 
@@ -106,7 +127,7 @@ class SurveySchemaConfig(RootModel):
 # 问卷数据记录
 class SurveyRecord(RootModel):
     survey_type = CharField(db_index=True)     # 问卷类型
-    survey_id = CharField(unique=True)          # 外部系统问卷ID
+    survey_id = CharField(unique=True)          # 本地唯一标识（格式：{survey_type}_{external_id}）
     patient_name = CharField(db_index=True)     # 患者姓名
     patient_info = JSONField()                  # 患者基本信息
     survey_data = JSONField()                   # 问卷答案数据
