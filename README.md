@@ -34,6 +34,12 @@ zq-platform is a comprehensive enterprise-level admin management system solution
 - 🎨 **Modern UI** - Responsive design with dark mode support
 - 📦 **Monorepo Architecture** - Frontend engineering solution based on pnpm workspace
 
+### 🆕 Extended Features
+
+- 📋 **Database Table Query** - Configuration-driven dynamic table querying without code changes
+- 🔄 **SQL Import** - Oracle to MySQL SQL conversion and batch import with status tracking
+- 📊 **Survey Integration** - External survey API integration for questionnaire data management (In Progress)
+
 ## 🏗️ Tech Stack
 
 ### Backend Technologies
@@ -43,7 +49,7 @@ zq-platform is a comprehensive enterprise-level admin management system solution
 - **Authentication**: PyJWT 2.8.0
 - **Async Tasks**: Celery 5.4.0 + Django Celery Beat
 - **Task Scheduling**: APScheduler 3.10.4
-- **Caching**: Redis + django-redis
+- **Caching**: Redis + django-redis 6.0.0
 - **WebSocket**: Django Channels 4.2
 - **Database Drivers**: psycopg2-binary, pymysql, pyodbc
 - **Server**: Uvicorn 0.38.0 / Gunicorn 23.0.0
@@ -57,6 +63,7 @@ zq-platform is a comprehensive enterprise-level admin management system solution
 - **State Management**: Pinia
 - **Router**: Vue Router
 - **HTTP Client**: Axios
+- **Styling**: Tailwind CSS
 - **Utility Libraries**: VueUse, dayjs, lodash-es
 - **Code Standards**: ESLint, Prettier, Stylelint
 - **Package Manager**: pnpm 10.14.0
@@ -83,32 +90,52 @@ zq-platform/
 │   │   ├── redis_monitor/  # Redis Monitoring
 │   │   ├── redis_manager/  # Redis Management
 │   │   ├── database_monitor/ # Database Monitoring
-│   │   └── database_manager/ # Database Management
+│   │   ├── database_manager/ # Database Management
+│   │   └── table_query/    # Dynamic Table Query
 │   ├── scheduler/          # Task Scheduling Module
 │   ├── common/             # Common Modules
+│   │   ├── fu_crud.py      # Generic CRUD Operations
+│   │   ├── fu_auth.py      # Auth & Authorization
+│   │   ├── fu_cache.py     # Cache Management
+│   │   ├── fu_pagination.py # Pagination Handler
+│   │   └── fu_schema.py    # Common Data Structures
 │   ├── env/                # Environment Configuration
 │   ├── requirements.txt    # Python Dependencies
 │   └── manage.py          # Django Management Script
 │
-└── web/                    # Vue Frontend (Monorepo)
-    ├── apps/
-    │   └── web-ele/        # Element Plus Main Application
-    │       ├── src/
-    │       │   ├── api/    # API Interfaces
-    │       │   ├── views/  # Page Components
-    │       │   ├── router/ # Router Configuration
-    │       │   └── store/  # State Management
-    │       └── package.json
-    ├── packages/           # Shared Packages
-    │   ├── @core/          # Core Packages
-    │   ├── effects/        # Effects Packages
-    │   ├── hooks/          # Hooks
-    │   ├── icons/          # Icons
-    │   ├── locales/        # Internationalization
-    │   ├── stores/         # State Management
-    │   └── utils/          # Utility Functions
-    ├── internal/           # Internal Tools
-    └── package.json        # Root Configuration
+├── web/                    # Vue Frontend (Monorepo)
+│   ├── apps/
+│   │   └── web-ele/        # Element Plus Main Application
+│   │       ├── src/
+│   │       │   ├── api/    # API Interfaces
+│   │       │   ├── views/  # Page Components
+│   │       │   ├── router/ # Router Configuration
+│   │       │   └── store/  # State Management
+│   │       └── package.json
+│   ├── packages/           # Shared Packages
+│   │   ├── @core/          # Core Packages
+│   │   ├── effects/        # Effects Packages
+│   │   ├── hooks/          # Hooks
+│   │   ├── icons/          # Icons
+│   │   ├── locales/        # Internationalization
+│   │   ├── stores/         # State Management
+│   │   └── utils/          # Utility Functions
+│   ├── internal/           # Internal Tools
+│   └── package.json        # Root Configuration
+│
+├── openspec/               # OpenSpec Specification-Driven Development
+│   ├── project.md          # Project Conventions
+│   ├── AGENTS.md           # AI Assistant Instructions
+│   ├── specs/              # Feature Specifications
+│   │   ├── database-table-query/
+│   │   └── sql-import/
+│   └── changes/            # Change Proposals
+│       ├── add-survey-api-integration/
+│       └── archive/
+│
+└── docs/                   # Documentation
+    ├── frontend-development-guide.md
+    └── backend-api-development-guide.md
 ```
 
 ## 🚀 Quick Start
@@ -134,10 +161,15 @@ cd zq-platform/backend-django
 
 2. **Create Virtual Environment**
 ```bash
+# Option 1: Using venv
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # or
 venv\Scripts\activate     # Windows
+
+# Option 2: Using conda (Recommended)
+conda create -n zqplat python=3.11 -y
+conda activate zqplat
 ```
 
 3. **Install Dependencies**
@@ -147,13 +179,12 @@ pip install -r requirements.txt
 
 4. **Configure Environment Variables**
 ```bash
-cp env
-# Edit the .env file to configure database, Redis, JWT keys, etc.
+# Create .env file in backend-django directory
+vim .env
 ```
 
 Main configuration items:
 ```env
-
 # JWT Keys
 JWT_ACCESS_SECRET_KEY=your-jwt-access-secret
 JWT_REFRESH_SECRET_KEY=your-jwt-refresh-secret
@@ -188,7 +219,6 @@ python manage.py loaddata db_init.json
 ```bash
 # Development Environment
 python manage.py runserver 0.0.0.0:8000
-
 ```
 
 8. **Start Task Scheduler (Optional)**
@@ -261,6 +291,39 @@ After initializing data, you can login with the following account:
 - **File Preview**: Online preview for images and documents
 - **File Download**: Batch download functionality
 
+### Data Management (Extended)
+
+#### Database Table Query
+Configuration-driven dynamic table querying system:
+- **JSON Configuration**: Define query rules without code changes
+- **Dynamic Query API**: Unified query endpoint with pagination, filtering, sorting
+- **SQL Injection Protection**: Parameterized queries and whitelist validation
+- **Data Export**: Export to Excel/CSV formats
+- **Query Logging**: Audit all query and export operations
+
+```bash
+# Batch create table configurations
+python manage.py batch_create_table_configs --prefix BS_ --all
+
+# Initialize query menus
+python manage.py init_table_query_menus
+```
+
+#### SQL Import (Oracle to MySQL)
+Oracle SQL file conversion and import system:
+- **Syntax Conversion**: Oracle to MySQL compatible syntax
+- **Batch Import**: Directory-based batch file import
+- **Status Tracking**: Resume interrupted imports, retry failed files
+- **Progress Reporting**: Detailed import progress and statistics
+
+```bash
+# Convert Oracle SQL files to MySQL
+python manage.py convert_sql input.sql -o output/
+
+# Import converted files
+python manage.py import_sql converted/ --all --resume
+```
+
 ## 🔐 API Documentation
 
 After starting the backend, visit the following URLs to view API documentation:
@@ -270,18 +333,34 @@ After starting the backend, visit the following URLs to view API documentation:
 
 ## 🛠️ Development Guide
 
-### Backend Development
+### Code Style Conventions
 
-1. **Adding New Modules**
-   - Create in `core/` or create a new app
-   - Define models, schemas, services, api
-   - Register routes in router
+#### Backend (Python/Django)
+- Follow PEP 8 coding standards
+- Use UTF-8 encoding declaration: `# -*- coding: utf-8 -*-`
+- Write comments and docstrings in Chinese
+- Module files naming: `module_function.py` (e.g., `user_api.py`, `user_model.py`)
+- Class names: PascalCase; Functions and variables: snake_case
+- API endpoints: RESTful style with unified response format
 
-2. **API Development Standards**
-   - Use Django Ninja decorators
-   - Unified return format
-   - Exception handling
-   - Permission verification
+#### Frontend (TypeScript/Vue)
+- Use ESLint + Prettier for code formatting
+- TypeScript for type-safe development
+- Components use `<script setup>` syntax
+- Prefer Tailwind CSS for styling
+- Import icons from `@vben/icons`
+
+### Backend Module Architecture
+
+Each business module (user, role, permission, etc.) follows this structure:
+```
+core/
+└── [module]/
+    ├── __init__.py
+    ├── [module]_api.py      # API Endpoints (Django Ninja Router)
+    ├── [module]_model.py    # Data Models (Django Model)
+    └── [module]_schema.py   # Data Validation (Pydantic Schema)
+```
 
 ### Frontend Development
 
@@ -296,7 +375,88 @@ After starting the backend, visit the following URLs to view API documentation:
    - Support dark mode
    - Import icons from `@vben/icons`
 
+### Testing Strategy
+
+#### Frontend Testing
+- **Unit Tests**: Vitest + Vue Test Utils + happy-dom
+- **E2E Tests**: Playwright
+- Test files: `*.spec.ts` or `*.test.ts`
+- Commands: `pnpm test:unit` (unit), `pnpm test:e2e` (E2E)
+
+#### Backend Testing
+- Django TestCase for unit tests
+- Django Ninja test client for API tests
+- Test data fixtures: `db_init.json`
+
+### Git Workflow
+
+#### Branch Strategy
+- `main`: Main branch, stable and releasable
+- `feature/*`: Feature branches, created from main
+- `fix/*`: Bug fix branches
+- `release/*`: Release branches
+
+#### Commit Conventions
+- Use Conventional Commits specification
+- Format: `<type>(<scope>): <description>`
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+- Use `pnpm commit` (czg) for interactive commits
+- Git Hooks: lefthook + commitlint
+
+## 📋 OpenSpec Specification-Driven Development
+
+This project uses OpenSpec for specification-driven development. All major features and changes are documented through structured specifications.
+
+### Directory Structure
+```
+openspec/
+├── project.md              # Project conventions and context
+├── AGENTS.md               # AI assistant instructions
+├── specs/                  # Current specifications (source of truth)
+│   └── [capability]/
+│       ├── spec.md         # Requirements and scenarios
+│       └── design.md       # Technical patterns
+└── changes/                # Change proposals
+    ├── [change-name]/
+    │   ├── proposal.md     # Why, what, impact
+    │   ├── tasks.md        # Implementation checklist
+    │   ├── design.md       # Technical decisions (optional)
+    │   └── specs/          # Incremental spec changes
+    └── archive/            # Completed changes
+```
+
+### Creating a Change Proposal
+
+When adding new features or making significant changes:
+
+1. **Create change directory**: `openspec/changes/[change-id]/`
+2. **Write proposal.md**: Document why, what, and impact
+3. **Create spec deltas**: Use `## ADDED|MODIFIED|REMOVED Requirements`
+4. **Validate**: `openspec-cn validate [change-id] --strict`
+
+### CLI Commands
+
+```bash
+# List active changes
+openspec-cn list
+
+# List specifications
+openspec-cn list --specs
+
+# Show change or spec details
+openspec-cn show [item]
+
+# Validate change or spec
+openspec-cn validate [item] --strict
+
+# Archive completed change
+openspec-cn archive <change-id> --yes
+```
+
+For detailed instructions, see `openspec/AGENTS.md`.
+
 ## 📦 Deployment
+
 1. **Backend Deployment**
    - Use Gunicorn + Nginx
    - Configure Supervisor process daemon
@@ -317,6 +477,12 @@ Issues and Pull Requests are welcome!
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+### Development Process
+1. Check existing specs: `openspec-cn list --specs`
+2. Create change proposal for significant changes
+3. Get proposal approved before implementation
+4. Follow code conventions in `openspec/project.md`
+5. Update tasks.md as you complete items
 
 ## 🙏 Acknowledgments
 
@@ -324,6 +490,7 @@ Issues and Pull Requests are welcome!
 - [Django Ninja](https://django-ninja.rest-framework.com/) - Fast Django REST framework
 - [Vue Vben Admin](https://github.com/vbenjs/vue-vben-admin) - Excellent Vue3 admin template
 - [Element Plus](https://element-plus.org/) - Vue 3 component library
+- [OpenSpec](https://github.com/openspec-cn/openspec) - Specification-driven development
 
 ## 📞 Contact
 

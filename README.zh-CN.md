@@ -1,4 +1,4 @@
-# zq-platform(芷青开发平台)
+# zq-platform (芷青开发平台)
 
 [English](./README.md) | 简体中文
 
@@ -34,6 +34,12 @@ zq-platform 是一个功能完善的企业级后台管理系统解决方案，�
 - 🎨 **现代化 UI** - 响应式设计，支持暗黑模式
 - 📦 **Monorepo 架构** - 基于 pnpm workspace 的前端工程化方案
 
+### 🆕 扩展功能
+
+- 📋 **数据库表查询** - 配置化驱动的动态表查询，无需编写代码
+- 🔄 **SQL 导入** - Oracle 到 MySQL 的 SQL 转换和批量导入，支持状态追踪
+- 📊 **问卷调查集成** - 外部问卷 API 对接，用于问卷数据管理（开发中）
+
 ## 🏗️ 技术栈
 
 ### 后端技术
@@ -43,7 +49,7 @@ zq-platform 是一个功能完善的企业级后台管理系统解决方案，�
 - **认证**: PyJWT 2.8.0
 - **异步任务**: Celery 5.4.0 + Django Celery Beat
 - **任务调度**: APScheduler 3.10.4
-- **缓存**: Redis + django-redis
+- **缓存**: Redis + django-redis 6.0.0
 - **WebSocket**: Django Channels 4.2
 - **数据库驱动**: psycopg2-binary, pymysql, pyodbc
 - **服务器**: Uvicorn 0.38.0 / Gunicorn 23.0.0
@@ -57,6 +63,7 @@ zq-platform 是一个功能完善的企业级后台管理系统解决方案，�
 - **状态管理**: Pinia
 - **路由**: Vue Router
 - **HTTP 客户端**: Axios
+- **样式**: Tailwind CSS
 - **工具库**: VueUse, dayjs, lodash-es
 - **代码规范**: ESLint, Prettier, Stylelint
 - **包管理**: pnpm 10.14.0
@@ -83,32 +90,52 @@ zq-platform/
 │   │   ├── redis_monitor/  # Redis 监控
 │   │   ├── redis_manager/  # Redis 管理
 │   │   ├── database_monitor/ # 数据库监控
-│   │   └── database_manager/ # 数据库管理
+│   │   ├── database_manager/ # 数据库管理
+│   │   └── table_query/    # 动态表查询
 │   ├── scheduler/          # 任务调度模块
 │   ├── common/             # 公共模块
+│   │   ├── fu_crud.py      # 通用 CRUD 操作
+│   │   ├── fu_auth.py      # 认证授权
+│   │   ├── fu_cache.py     # 缓存管理
+│   │   ├── fu_pagination.py # 分页处理
+│   │   └── fu_schema.py    # 公共数据结构
 │   ├── env/                # 环境配置
 │   ├── requirements.txt    # Python 依赖
 │   └── manage.py          # Django 管理脚本
 │
-└── web/                    # Vue 前端 (Monorepo)
-    ├── apps/
-    │   └── web-ele/        # Element Plus 版本主应用
-    │       ├── src/
-    │       │   ├── api/    # API 接口
-    │       │   ├── views/  # 页面组件
-    │       │   ├── router/ # 路由配置
-    │       │   └── store/  # 状态管理
-    │       └── package.json
-    ├── packages/           # 共享包
-    │   ├── @core/          # 核心包
-    │   ├── effects/        # 副作用包
-    │   ├── hooks/          # Hooks
-    │   ├── icons/          # 图标
-    │   ├── locales/        # 国际化
-    │   ├── stores/         # 状态管理
-    │   └── utils/          # 工具函数
-    ├── internal/           # 内部工具
-    └── package.json        # 根配置
+├── web/                    # Vue 前端 (Monorepo)
+│   ├── apps/
+│   │   └── web-ele/        # Element Plus 版本主应用
+│   │       ├── src/
+│   │       │   ├── api/    # API 接口
+│   │       │   ├── views/  # 页面组件
+│   │       │   ├── router/ # 路由配置
+│   │       │   └── store/  # 状态管理
+│   │       └── package.json
+│   ├── packages/           # 共享包
+│   │   ├── @core/          # 核心包
+│   │   ├── effects/        # 副作用包
+│   │   ├── hooks/          # Hooks
+│   │   ├── icons/          # 图标
+│   │   ├── locales/        # 国际化
+│   │   ├── stores/         # 状态管理
+│   │   └── utils/          # 工具函数
+│   ├── internal/           # 内部工具
+│   └── package.json        # 根配置
+│
+├── openspec/               # OpenSpec 规范驱动开发
+│   ├── project.md          # 项目约定
+│   ├── AGENTS.md           # AI 助手说明
+│   ├── specs/              # 功能规范
+│   │   ├── database-table-query/
+│   │   └── sql-import/
+│   └── changes/            # 变更提案
+│       ├── add-survey-api-integration/
+│       └── archive/
+│
+└── docs/                   # 文档
+    ├── frontend-development-guide.md
+    └── backend-api-development-guide.md
 ```
 
 ## 🚀 快速开始
@@ -134,15 +161,15 @@ cd zq-platform/backend-django
 
 2. **创建虚拟环境**
 ```bash
-# python -m venv venv
+# 方式一：使用 venv
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# 或
+venv\Scripts\activate     # Windows
 
-# source venv/bin/activate  # Linux/Mac
-# # 或
-# venv\Scripts\activate     # Windows
+# 方式二：使用 conda（推荐）
 conda create -n zqplat python=3.11 -y
 conda activate zqplat
-conda deactivate
-
 ```
 
 3. **安装依赖**
@@ -152,15 +179,12 @@ pip install -r requirements.txt
 
 4. **配置环境变量**
 ```bash
-# cp env
-# 编辑 .env 文件，配置数据库、Redis、JWT 密钥等
-# 创建 .env文件
+# 在 backend-django 目录下创建 .env 文件
 vim .env
 ```
 
 主要配置项：
 ```env
-
 # JWT 密钥
 JWT_ACCESS_SECRET_KEY=your-jwt-access-secret
 JWT_REFRESH_SECRET_KEY=your-jwt-refresh-secret
@@ -195,7 +219,6 @@ python manage.py loaddata db_init.json
 ```bash
 # 开发环境
 python manage.py runserver 0.0.0.0:8000
-
 ```
 
 8. **启动任务调度器（可选）**
@@ -239,7 +262,7 @@ pnpm build:ele
 初始化数据后，可使用以下账号登录：
 
 - 账号: `superadmin`
-- 密码: 请查看 `123456` 或联系管理员
+- 密码: `123456` 或联系管理员
 
 ## 🔧 主要功能模块
 
@@ -268,6 +291,39 @@ pnpm build:ele
 - **文件预览**: 图片、文档在线预览
 - **文件下载**: 批量下载功能
 
+### 数据管理（扩展功能）
+
+#### 数据库表查询
+配置化驱动的动态表查询系统：
+- **JSON 配置**: 通过配置定义查询规则，无需编写代码
+- **动态查询 API**: 统一查询端点，支持分页、过滤、排序
+- **SQL 注入防护**: 参数化查询和白名单验证
+- **数据导出**: 支持 Excel/CSV 格式导出
+- **查询日志**: 记录所有查询和导出操作用于审计
+
+```bash
+# 批量创建表查询配置
+python manage.py batch_create_table_configs --prefix BS_ --all
+
+# 初始化查询菜单
+python manage.py init_table_query_menus
+```
+
+#### SQL 导入（Oracle 到 MySQL）
+Oracle SQL 文件转换和导入系统：
+- **语法转换**: Oracle 到 MySQL 兼容语法转换
+- **批量导入**: 基于目录的批量文件导入
+- **状态追踪**: 支持断点续导、失败重试
+- **进度报告**: 详细的导入进度和统计信息
+
+```bash
+# 转换 Oracle SQL 文件到 MySQL
+python manage.py convert_sql input.sql -o output/
+
+# 导入转换后的文件
+python manage.py import_sql converted/ --all --resume
+```
+
 ## 🔐 API 文档
 
 后端启动后，访问以下地址查看 API 文档：
@@ -277,18 +333,34 @@ pnpm build:ele
 
 ## 🛠️ 开发指南
 
-### 后端开发
+### 代码风格约定
 
-1. **添加新模块**
-   - 在 `core/` 或创建新 app
-   - 定义 models、schemas、services、api
-   - 在 router 中注册路由
+#### 后端（Python/Django）
+- 遵循 PEP 8 代码规范
+- 文件头使用 UTF-8 编码声明：`# -*- coding: utf-8 -*-`
+- 使用中文编写注释和文档字符串
+- 模块文件使用 `模块名_功能.py` 命名，如 `user_api.py`、`user_model.py`
+- 类名使用 PascalCase，函数和变量使用 snake_case
+- API 接口使用 RESTful 风格，统一返回格式
 
-2. **API 开发规范**
-   - 使用 Django Ninja 装饰器
-   - 统一返回格式
-   - 异常处理
-   - 权限验证
+#### 前端（TypeScript/Vue）
+- 使用 ESLint + Prettier 进行代码格式化
+- 使用 TypeScript 进行类型安全开发
+- 组件使用 `<script setup>` 语法
+- 优先使用 Tailwind CSS 进行样式开发
+- 图标统一从 `@vben/icons` 导入
+
+### 后端模块化架构
+
+每个业务模块（user、role、permission 等）遵循以下结构：
+```
+core/
+└── [module]/
+    ├── __init__.py
+    ├── [module]_api.py      # API 接口定义（Django Ninja Router）
+    ├── [module]_model.py    # 数据模型定义（Django Model）
+    └── [module]_schema.py   # 数据校验和序列化（Pydantic Schema）
+```
 
 ### 前端开发
 
@@ -303,7 +375,88 @@ pnpm build:ele
    - 支持暗黑模式
    - 图标从 `@vben/icons` 导入
 
+### 测试策略
+
+#### 前端测试
+- **单元测试**: Vitest + Vue Test Utils + happy-dom
+- **E2E 测试**: Playwright
+- 测试文件与源文件同目录，命名为 `*.spec.ts` 或 `*.test.ts`
+- 运行命令：`pnpm test:unit`（单元测试）、`pnpm test:e2e`（E2E 测试）
+
+#### 后端测试
+- 使用 Django TestCase 进行单元测试
+- API 测试使用 Django Ninja 的测试客户端
+- 测试数据使用 fixtures：`db_init.json`
+
+### Git 工作流
+
+#### 分支策略
+- `main`: 主分支，保持稳定可发布状态
+- `feature/*`: 功能分支，从 main 创建
+- `fix/*`: 修复分支
+- `release/*`: 发布分支
+
+#### 提交约定
+- 使用 Conventional Commits 规范
+- 提交信息格式：`<type>(<scope>): <description>`
+- 类型包括：`feat`、`fix`、`docs`、`style`、`refactor`、`test`、`chore`
+- 使用 `pnpm commit`（czg）进行交互式提交
+- Git Hooks: lefthook + commitlint
+
+## 📋 OpenSpec 规范驱动开发
+
+本项目使用 OpenSpec 进行规范驱动开发。所有重大功能和变更都通过结构化规范进行文档化。
+
+### 目录结构
+```
+openspec/
+├── project.md              # 项目约定和上下文
+├── AGENTS.md               # AI 助手使用说明
+├── specs/                  # 当前规范（真相来源）
+│   └── [capability]/
+│       ├── spec.md         # 需求和场景
+│       └── design.md       # 技术模式
+└── changes/                # 变更提案
+    ├── [change-name]/
+    │   ├── proposal.md     # 为什么、什么、影响
+    │   ├── tasks.md        # 实施清单
+    │   ├── design.md       # 技术决策（可选）
+    │   └── specs/          # 增量规范变更
+    └── archive/            # 已完成的变更
+```
+
+### 创建变更提案
+
+当添加新功能或进行重大变更时：
+
+1. **创建变更目录**: `openspec/changes/[change-id]/`
+2. **编写 proposal.md**: 记录为什么、什么和影响
+3. **创建规范增量**: 使用 `## 新增|修改|移除需求`
+4. **验证**: `openspec-cn validate [change-id] --strict`
+
+### CLI 命令
+
+```bash
+# 列出活动变更
+openspec-cn list
+
+# 列出规范
+openspec-cn list --specs
+
+# 显示变更或规范详情
+openspec-cn show [item]
+
+# 验证变更或规范
+openspec-cn validate [item] --strict
+
+# 归档已完成的变更
+openspec-cn archive <change-id> --yes
+```
+
+详细说明请参阅 `openspec/AGENTS.md`。
+
 ## 📦 部署
+
 1. **后端部署**
    - 使用 Gunicorn + Nginx
    - 配置 Supervisor 进程守护
@@ -324,6 +477,12 @@ pnpm build:ele
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
 
+### 开发流程
+1. 检查现有规范: `openspec-cn list --specs`
+2. 为重大变更创建变更提案
+3. 在实施前获得提案批准
+4. 遵循 `openspec/project.md` 中的代码约定
+5. 完成任务后更新 tasks.md
 
 ## 🙏 致谢
 
@@ -331,6 +490,7 @@ pnpm build:ele
 - [Django Ninja](https://django-ninja.rest-framework.com/) - 快速的 Django REST 框架
 - [Vue Vben Admin](https://github.com/vbenjs/vue-vben-admin) - 优秀的 Vue3 后台管理模板
 - [Element Plus](https://element-plus.org/) - 基于 Vue 3 的组件库
+- [OpenSpec](https://github.com/openspec-cn/openspec) - 规范驱动开发工具
 
 ## 📞 联系方式
 

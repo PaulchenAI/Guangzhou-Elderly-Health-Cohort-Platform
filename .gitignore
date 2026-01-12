@@ -68,3 +68,4 @@ __pycache__
 /.windsurf/rules/web.md
 /docs/
 */*.md/
+backend-django/.env
