@@ -66,6 +66,6 @@ __pycache__
 
 ./windsurf/rules
 /.windsurf/rules/web.md
-/docs/
-*/*.md/
+/docs/hospital/*
+/docs/survey/*
 backend-django/.env
