@@ -6,7 +6,8 @@
 
 ```
 tools/
-└── sql-fix-tools/                # 规则修复工具
+├── oracle_to_mysql.py           # Oracle转MySQL转换工具（支持自动调用修复）
+└── sql-fix-tools/               # 规则修复工具
     ├── fix_sql_main.py          # 一键修复脚本
     ├── fix_special_sql_issues.py# 特殊问题修复
     └── fix_remaining_concat.py  # CONCAT残留修复
@@ -16,7 +17,43 @@ tools/
 
 ## 🚀 推荐工作流
 
-### 完整的SQL修复流程
+### 方式一：自动化集成（推荐）
+
+使用 `oracle_to_mysql.py` 的 `--auto-fix` 参数，转换完成后自动调用修复工具：
+
+```bash
+# 转换并自动修复（一步完成）
+python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+    -o docs/hospital/convertsql \
+    --split-ddl-dml \
+    --enable-comments \
+    --auto-fix
+
+# 输出目录结构：
+# docs/hospital/convertsql/
+# ├── create/    # DDL 文件（表结构）
+# └── insert/    # DML 文件（数据）
+```
+
+### 方式二：手动分步执行
+
+```bash
+# 步骤1: 转换（不自动修复）
+python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+    -o docs/hospital/convertsql \
+    --split-ddl-dml
+
+# 步骤2: 手动修复
+cd tools/sql-fix-tools
+python fix_sql_main.py --target-dir ../../docs/hospital/convertsql/create
+python fix_sql_main.py --target-dir ../../docs/hospital/convertsql/insert
+
+# 步骤3: 导入验证
+cd ../../backend-django
+python manage.py import_oracle_sql --batch-id test001 --default-convertsql
+```
+
+### 方式三：传统工作流（兼容旧版本）
 
 ```bash
 # 步骤1: 规则修复（处理常见问题）
@@ -42,10 +79,41 @@ python manage.py import_oracle_sql --batch-id test001 --retry-failed
 
 **适用**：可预测的、有明确模式的SQL转换问题
 
-#### 一键修复
+#### 命令行参数
+
 ```bash
+python fix_sql_main.py [选项]
+
+选项：
+  --target-dir, -t DIR    指定要修复的目录（默认使用配置文件中的目录）
+  --quiet, -q             减少输出信息（适合自动化调用）
+  -h, --help              显示帮助信息
+```
+
+#### 一键修复
+
+```bash
+# 修复默认目录
 cd /mnt/f/work/zq-platform/tools/sql-fix-tools
 python fix_sql_main.py
+
+# 修复指定目录
+python fix_sql_main.py --target-dir /path/to/sql/files
+
+# 静默模式（适合脚本调用）
+python fix_sql_main.py --target-dir /path/to/sql/files --quiet
+```
+
+#### 分离模式下的修复
+
+当使用 `oracle_to_mysql.py --split-ddl-dml` 时，DDL 和 DML 会分离到不同目录，需要分别修复：
+
+```bash
+# 修复 DDL 文件（表结构）
+python fix_sql_main.py --target-dir docs/hospital/convertsql/create
+
+# 修复 DML 文件（数据）
+python fix_sql_main.py --target-dir docs/hospital/convertsql/insert
 ```
 
 #### 分步修复
@@ -206,13 +274,72 @@ CONCAT(column_value, 'text', value, 'end')
 
 ---
 
-## 🎉 下一步
+## 🔄 自动化集成
 
-1. 运行规则修复：`cd sql-fix-tools && python fix_sql_main.py`
-2. 测试导入效果：`cd ../../backend-django && python manage.py import_oracle_sql...`
-3. 查看错误日志：`cat backend-django/logs/import_*.log`
-4. 根据日志手动修复剩余问题
+### oracle_to_mysql.py 集成
+
+`oracle_to_mysql.py` 支持在转换完成后自动调用本工具进行修复：
+
+```bash
+python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+    -o docs/hospital/convertsql \
+    --auto-fix
+```
+
+当同时使用 `--split-ddl-dml` 和 `--auto-fix` 时，会自动分别修复 `create/` 和 `insert/` 目录：
+
+```bash
+python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+    -o docs/hospital/convertsql \
+    --split-ddl-dml \
+    --auto-fix
+```
+
+### 工作流程图
+
+```
+Oracle SQL 文件
+       ↓
+oracle_to_mysql.py (转换)
+       ↓
+   ┌───┴───┐
+   │       │
+   ↓       ↓
+create/  insert/   (--split-ddl-dml 模式)
+   │       │
+   ↓       ↓
+sql-fix-tools (--auto-fix 自动调用)
+   │       │
+   ↓       ↓
+修复后的 MySQL SQL
+       ↓
+import_oracle_sql (导入数据库)
+```
 
 ---
 
-最后更新: 2026-01-10
+## 🎉 下一步
+
+1. **推荐**：使用自动化集成
+   ```bash
+   python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+       -o docs/hospital/convertsql --split-ddl-dml --auto-fix
+   ```
+
+2. 或者手动运行规则修复：
+   ```bash
+   cd sql-fix-tools && python fix_sql_main.py --target-dir ../docs/hospital/convertsql
+   ```
+
+3. 测试导入效果：
+   ```bash
+   cd backend-django && python manage.py import_oracle_sql --batch-id test001 --default-convertsql
+   ```
+
+4. 查看错误日志：`cat backend-django/logs/import_*.log`
+
+5. 根据日志手动修复剩余问题
+
+---
+
+最后更新: 2026-01-13
