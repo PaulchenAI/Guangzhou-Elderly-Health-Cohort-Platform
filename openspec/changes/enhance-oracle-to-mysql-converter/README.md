@@ -119,22 +119,26 @@ Oracle SQL → oracle_to_mysql.py (转换)
    ↓
 COMMENT 转换 (2.1 → 2.2 → 2.3 → 2.4)
    ↓
-表名前缀 (3.1 → 3.2 → 3.3)
+DDL/DML 分离 (3.1 → 3.2 → 3.3 → 3.4 → 3.5)
    ↓
-自动修复 (4.1 → 4.2 → 4.3 → 4.4)
+表名前缀 (4.1 → 4.2 → 4.3)
    ↓
-单元测试 (5.1, 5.2, 5.3 并行)
+自动修复 (5.1 → 5.2 → 5.3 → 5.4 → 5.5)
    ↓
-端到端测试 (5.4)
+单元测试 (6.1-6.4 并行)
    ↓
-文档更新 (6.1, 6.2, 6.3 并行)
+功能组合测试 (6.5)
    ↓
-最终验证 (7.1, 7.2, 7.3)
+端到端测试 (6.6)
+   ↓
+文档更新 (7.1-7.4 并行)
+   ↓
+最终验证 (8.1-8.4)
 ```
 
 ## 规范增量
 
-### 新增需求 (3个)
+### 新增需求 (4个)
 
 1. **Oracle COMMENT 转换为 MySQL 注释**
    - 6 个场景：收集表注释、收集列注释、注入列注释、注入表注释、处理特殊字符、默认行为
@@ -142,25 +146,51 @@ COMMENT 转换 (2.1 → 2.2 → 2.3 → 2.4)
 2. **SQL 语句中的表名前缀**
    - 7 个场景：CREATE TABLE、DROP TABLE、INSERT INTO、文件名前缀独立、只用文件名前缀、只用表名前缀、合法性验证
 
-3. **自动化 SQL 修复集成**
-   - 7 个场景：启用修复、修复成功、修复失败、跳过修复、路径定位、合并报告、批量转换修复
+3. **DDL 和 DML 文件分离**
+   - 8 个场景：启用分离、DDL 文件命名、DML 文件命名、自动创建子目录、空表处理、大表数据分离、与其他功能组合、向后兼容
+
+4. **自动化 SQL 修复集成**
+   - 7 个场景：启用修复、修复成功、修复失败、跳过修复、路径定位、分离模式下的修复、合并报告、批量转换修复
 
 ### 修改需求 (1个)
 
-- **转换后文件保存**: 更新说明 `--prefix` 和 `--table-prefix` 的独立性
+- **转换后文件保存**: 更新说明 `--prefix`、`--table-prefix` 和 `--split-ddl-dml` 的功能和组合
 
 ## 下一步行动
 
 ### 提案批准前
 1. 与团队成员讨论技术设计
-2. 确认需求优先级
-3. 评估实施时间
+2. 确认DDL/DML 分离的目录结构和命名规则
+3. 确认需求优先级
+4. 评估实施时间
 
 ### 提案批准后
 1. 按照 `tasks.md` 顺序实施功能
-2. 确保每个任务完成后更新清单
-3. 完成后运行 `openspec-cn validate` 验证
-4. 归档变更：`openspec-cn archive enhance-oracle-to-mysql-converter`
+2. 重点关注 DDL/DML 分离的流式处理和内存优化
+3. 确保每个任务完成后更新清单
+4. 完成后运行 `openspec-cn validate` 验证
+5. 归档变更：`openspec-cn archive enhance-oracle-to-mysql-converter`
+
+### 分阶段导入测试
+```bash
+# 1. 转换并分离
+python tools/oracle_to_mysql.py convert-all docs/hospital/sql/ \
+  -o docs/hospital/convertsql/ \
+  --split-ddl-dml \
+  --table-prefix gzlry_ \
+  --enable-comments \
+  --auto-fix
+
+# 2. 先导入表结构
+python manage.py import_oracle_sql docs/hospital/convertsql/create/ --all
+
+# 3. 再导入数据
+python manage.py import_oracle_sql docs/hospital/convertsql/insert/ --all
+
+# 4. 重复导入数据（如果需要）
+# 清空数据...
+python manage.py import_oracle_sql docs/hospital/convertsql/insert/ --all
+```
 
 ## 查看提案
 

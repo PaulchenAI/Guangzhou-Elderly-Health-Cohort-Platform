@@ -90,6 +90,73 @@
 
 ---
 
+### 需求：DDL 和 DML 文件分离
+
+系统必须支持将表结构定义（DDL）和数据插入语句（DML）分离到不同的文件和目录，以支持分阶段导入和更灵活的数据管理。
+
+#### 场景：启用 DDL/DML 分离
+
+- **当** 用户指定 `--split-ddl-dml` 参数
+- **那么** CREATE TABLE 和 DROP TABLE 语句保存到 `create/` 子目录
+- **并且** INSERT INTO 语句保存到 `insert/` 子目录
+
+#### 场景：DDL 文件命名
+
+- **当** 转换表 `BS_AREA` 并启用分离模式
+- **那么** DDL 文件保存为 `convertsql/create/BS_AREA.sql`
+- **并且** 文件包含 DROP TABLE 和 CREATE TABLE 语句
+
+#### 场景：DML 文件命名
+
+- **当** 转换表 `BS_AREA` 并启用分离模式
+- **那么** DML 文件保存为 `convertsql/insert/BS_AREA_data.sql`
+- **并且** 文件包含所有 INSERT INTO 语句
+- **注意**：文件名添加 `_data` 后缀以区别于 DDL 文件
+
+#### 场景：自动创建子目录
+
+- **当** 使用 `convert-all` 批量转换并启用 `--split-ddl-dml`
+- **那么** 自动创建 `convertsql/create/` 和 `convertsql/insert/` 目录
+- **并且** 所有 DDL 文件保存到 create/ 目录
+- **并且** 所有 DML 文件保存到 insert/ 目录
+
+#### 场景：空表处理
+
+- **当** 表没有任何 INSERT 语句（空表）
+- **那么** 只创建 DDL 文件（`create/表名.sql`）
+- **并且** 不创建空的 DML 文件
+- **并且** 在转换日志中标记"无数据"
+
+#### 场景：大表数据分离
+
+- **当** 转换包含大量 INSERT 语句的表（如 BS_OLDER.sql，8000+ INSERT）
+- **那么** 将 INSERT 语句独立保存到 `insert/BS_OLDER_data.sql`
+- **并且** 保持流式处理，不增加内存占用
+- **并且** CREATE TABLE 保存到相对较小的 `create/BS_OLDER.sql`
+
+#### 场景：与其他功能组合
+
+- **当** 同时使用 `--split-ddl-dml`、`--table-prefix gzlry_` 和 `--enable-comments`
+- **那么** DDL 文件包含带前缀的表名和完整注释
+- **并且** DML 文件的 INSERT INTO 语句使用带前缀的表名
+- **例如**：
+  ```sql
+  -- create/BS_AREA.sql
+  CREATE TABLE gzlry_BS_AREA (...) COMMENT='院区表';
+  
+  -- insert/BS_AREA_data.sql
+  INSERT INTO gzlry_BS_AREA (...) VALUES (...);
+  ```
+
+#### 场景：向后兼容 - 不启用分离
+
+- **当** 用户未指定 `--split-ddl-dml` 参数
+- **那么** 所有语句（DDL 和 DML）保存在同一个文件中
+- **并且** 文件直接保存在输出目录根目录（不创建 create/ 和 insert/ 子目录）
+- **并且** 保持与当前版本完全一致的行为
+
+---
+
 ### 需求：自动化 SQL 修复集成
 
 系统必须支持在 Oracle 到 MySQL 转换完成后，自动调用 `sql-fix-tools` 工具集进行二次修复，实现一键转换流程。
@@ -126,6 +193,13 @@
 - **那么** 工具必须正确定位 `tools/sql-fix-tools/fix_sql_main.py` 的路径
 - **并且** 如果修复工具不存在，记录错误并提示用户手动修复
 
+#### 场景：分离模式下的修复
+
+- **当** 启用 `--split-ddl-dml` 和 `--auto-fix` 参数
+- **那么** 分别对 `convertsql/create/` 和 `convertsql/insert/` 目录执行修复
+- **并且** DDL 修复重点处理保留字和特殊字符列名
+- **并且** DML 修复重点处理 CONCAT 转换和字符串转义
+
 #### 场景：生成合并报告
 
 - **当** 启用自动修复并完成后
@@ -138,7 +212,8 @@
 
 - **当** 用户使用 `convert-all` 命令批量转换目录
 - **并且** 指定 `--auto-fix` 参数
-- **那么** 在所有文件转换完成后，对整个输出目录执行一次修复
+- **那么** 在所有文件转换完成后执行修复
+- **并且** 如果启用 `--split-ddl-dml`，分别修复 create/ 和 insert/ 目录
 - **而不是** 对每个文件单独修复（避免重复操作）
 
 ---
@@ -170,3 +245,28 @@
 
 - **当** 用户使用 `convert-all` 命令转换目录下所有文件
 - **那么** 必须指定输出目录（`-o` 参数），所有转换后的文件保存到该目录
+- **并且** 如果启用 `--split-ddl-dml`，在输出目录下创建 create/ 和 insert/ 子目录
+
+#### 场景：DDL/DML 分离后的文件组织
+
+- **当** 使用 `--split-ddl-dml` 参数
+- **那么** 输出目录结构为：
+  ```
+  convertsql/
+  ├── create/
+  │   ├── BS_AREA.sql
+  │   └── BS_OLDER.sql
+  └── insert/
+      ├── BS_AREA_data.sql
+      └── BS_OLDER_data.sql
+  ```
+- **并且** 如果同时使用 `--prefix mysql_`，文件名添加前缀：
+  ```
+  convertsql/
+  ├── create/
+  │   ├── mysql_BS_AREA.sql
+  │   └── mysql_BS_OLDER.sql
+  └── insert/
+      ├── mysql_BS_AREA_data.sql
+      └── mysql_BS_OLDER_data.sql
+  ```
