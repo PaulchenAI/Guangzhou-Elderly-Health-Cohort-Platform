@@ -74,10 +74,10 @@ async function loadCommonPlugins(
     {
       condition: isBuild && !!visualizer,
       plugins: () => [<PluginOption>viteVisualizerPlugin({
-          filename: './node_modules/.cache/visualizer/stats.html',
-          gzipSize: true,
-          open: true,
-        })],
+        filename: './node_modules/.cache/visualizer/stats.html',
+        gzipSize: true,
+        open: true,
+      })],
     },
   ];
 }
