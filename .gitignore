@@ -69,3 +69,4 @@ __pycache__
 /docs/hospital/*
 /docs/survey/*
 backend-django/.env
+*.zip
