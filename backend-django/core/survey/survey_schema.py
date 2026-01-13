@@ -152,3 +152,19 @@ class ImportDataResult(Schema):
     failed: int = Field(..., description="失败数量")
     errors: List[Dict[str, Any]] = Field(default=[], description="错误详情")
 
+
+class SurveySyncIn(Schema):
+    """手动同步数据请求"""
+    incremental: bool = Field(True, description="是否增量同步（默认 True）")
+    survey_type: Optional[str] = Field(None, description="问卷类型（为空则同步全部）")
+
+
+class SurveySyncOut(Schema):
+    """手动同步数据响应"""
+    batch_id: str = Field(..., description="批次ID")
+    total: int = Field(..., description="总处理数量")
+    success: int = Field(..., description="成功数量")
+    skipped: int = Field(..., description="跳过数量")
+    failed: int = Field(..., description="失败数量")
+    message: str = Field(..., description="结果消息")
+

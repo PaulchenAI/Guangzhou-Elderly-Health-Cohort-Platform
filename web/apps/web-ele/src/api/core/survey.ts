@@ -251,3 +251,31 @@ export async function getSurveyImportLogApi(logId: string) {
     );
 }
 
+
+// ============ 手动同步 API ============
+
+// 同步请求参数
+export interface SurveySyncParams {
+    incremental?: boolean; // 是否增量同步（默认 true）
+    surveyType?: string;   // 问卷类型（为空则同步全部）
+}
+
+// 同步结果
+export interface SurveySyncResult {
+    batch_id: string;
+    total: number;
+    success: number;
+    skipped: number;
+    failed: number;
+    message: string;
+}
+
+/**
+ * 手动触发问卷数据同步
+ */
+export async function triggerSurveySyncApi(params?: SurveySyncParams) {
+    return requestClient.post<SurveySyncResult>('/api/core/survey/sync', {
+        incremental: params?.incremental ?? true,
+        survey_type: params?.surveyType,
+    });
+}

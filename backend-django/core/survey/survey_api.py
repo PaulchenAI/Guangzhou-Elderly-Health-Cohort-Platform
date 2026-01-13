@@ -37,6 +37,8 @@ from core.survey.survey_schema import (
     SurveyRecordSchemaOut,
     SurveySchemaConfigFilters,
     SurveySchemaConfigSchemaOut,
+    SurveySyncIn,
+    SurveySyncOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -993,4 +995,59 @@ def get_import_log(request, log_id: str):
     - log_id: 日志 ID
     """
     return get_object_or_404(SurveyImportLog, id=log_id)
+
+
+# =============================================================================
+# 手动同步 API
+# =============================================================================
+
+@router.post(
+    "/survey/sync",
+    response=SurveySyncOut,
+    tags=["问卷管理"]
+)
+def trigger_sync(request, data: SurveySyncIn):
+    """
+    手动触发问卷数据同步
+    
+    请求体:
+    - incremental: 是否增量同步（默认 True）
+    - survey_type: 问卷类型（为空则同步全部）
+    
+    返回:
+    - batch_id: 批次ID
+    - total: 总处理数量
+    - success: 成功数量
+    - skipped: 跳过数量
+    - failed: 失败数量
+    - message: 结果消息
+    """
+    from core.survey.survey_service import SurveyService
+    
+    try:
+        service = SurveyService()
+        result = service.import_data(
+            survey_type=data.survey_type,
+            incremental=data.incremental,
+            trigger_type="manual",  # 标记为手动触发
+        )
+        
+        # 构建结果消息
+        message = f"同步完成：成功 {result['success']} 条"
+        if result['skipped'] > 0:
+            message += f"，跳过 {result['skipped']} 条"
+        if result['failed'] > 0:
+            message += f"，失败 {result['failed']} 条"
+        
+        return SurveySyncOut(
+            batch_id=result['batch_id'],
+            total=result['total'],
+            success=result['success'],
+            skipped=result['skipped'],
+            failed=result['failed'],
+            message=message,
+        )
+    except Exception as e:
+        logger.error(f"手动同步失败: {e}")
+        raise HttpError(500, f"同步失败: {str(e)}")
 

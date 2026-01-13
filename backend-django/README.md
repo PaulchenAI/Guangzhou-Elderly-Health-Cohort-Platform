@@ -47,6 +47,65 @@ python manage.py migrate
 ```bash
 python manage.py loaddata db_init.json
 ```
+
+### 初始化菜单（可选）
+```bash
+# 初始化表查询菜单
+python manage.py init_table_query_menus
+
+# 初始化问卷管理菜单
+python manage.py init_survey_menus
+
+# 强制重建菜单（删除现有后重建）
+python manage.py init_table_query_menus --force
+python manage.py init_survey_menus --force
+```
+
+### 同步问卷 Schema（可选）
+从外部问卷调查 API 同步问卷 Schema 定义到本地数据库。
+```bash
+# 测试 API 连接
+python manage.py sync_survey_schemas --test-connection
+
+# 同步所有类型
+python manage.py sync_survey_schemas
+
+# 同步指定类型
+python manage.py sync_survey_schemas --type fried --type rockwood
+```
+
+### 导入问卷数据（可选）
+从外部问卷调查 API 导入问卷数据。
+```bash
+# 增量导入所有类型
+python manage.py import_survey_data
+
+# 导入指定类型
+python manage.py import_survey_data --type fried
+
+# 导入指定日期范围
+python manage.py import_survey_data --start-date 2024-01-01 --end-date 2024-12-31
+
+# 全量导入（不跳过已存在的记录）
+python manage.py import_survey_data --full
+```
+
+### 批量创建表查询配置（可选）
+自动检测数据库表结构并创建查询配置。
+```bash
+# 列出所有可配置的表
+python manage.py batch_create_table_configs --list
+
+# 按前缀过滤并列出表
+python manage.py batch_create_table_configs --list --prefix WORKFLOW
+
+# 为指定前缀的所有表创建配置
+python manage.py batch_create_table_configs --prefix WORKFLOW
+
+# 更新现有配置（重新检测表结构）
+python manage.py batch_create_table_configs --prefix BS --update
+```
+
 ### 启动项目
 ```bash
 python manage.py runserver 0.0.0.0:8000

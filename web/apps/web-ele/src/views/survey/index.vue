@@ -6,7 +6,7 @@ import type { FilterCondition, SurveySchemaConfig } from '#/api/core/survey';
 import { computed, onMounted, ref, watch } from 'vue';
 
 import { Page } from '@vben/common-ui';
-import { Download, Search } from '@vben/icons';
+import { Download, ReloadOutlined, Search } from '@vben/icons';
 
 import {
   ElButton,
@@ -29,6 +29,7 @@ import {
   exportSurveyDataApi,
   getAllSurveySchemasApi,
   querySurveyDataApi,
+  triggerSurveySyncApi,
 } from '#/api/core/survey';
 
 import { buildColumns, hasSubQuestionnaires, useSearchFormSchema } from './data';
@@ -40,6 +41,7 @@ const schemas = ref<SurveySchemaConfig[]>([]);
 const loading = ref(false);
 const selectedSchemaId = ref<string>('');
 const searchKeyword = ref<string>('');
+const syncing = ref(false);
 
 // 搜索表单数据
 const searchForm = ref<Record<string, any>>({});
@@ -249,16 +251,16 @@ function formatFieldName(name: string): string {
     venueDistribution: '场所分布',
     categoryDistribution: '类别分布',
   };
-  
+
   if (fieldMap[name]) {
     return fieldMap[name];
   }
-  
+
   // 如果是全大写+数字的格式（如 MS01, PT01），直接返回原名
   if (/^[A-Z]+\d+$/.test(name)) {
     return name;
   }
-  
+
   // 转换 camelCase 为空格分隔（只在小写字母后跟大写字母时插入空格）
   return name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (s) => s.toUpperCase()).trim();
 }
@@ -319,14 +321,14 @@ function formatValue(value: any, fieldName?: string): string {
  */
 function getArrayItemKeys(data: any[]): string[] {
   if (!data || data.length === 0) return [];
-  
+
   // 从第一个元素获取所有键
   const firstItem = data[0];
   const keys = Object.keys(firstItem);
-  
+
   // 排除内部字段和索引字段
   const excludeKeys = new Set(['index', 'id', '_id']);
-  
+
   return keys.filter(k => !excludeKeys.has(k));
 }
 
@@ -387,6 +389,37 @@ async function handleExport(command: string) {
   }
 }
 
+/**
+ * 手动同步数据
+ */
+async function handleSync() {
+  if (syncing.value) {
+    return;
+  }
+
+  try {
+    syncing.value = true;
+    ElMessage.info('正在同步数据，请稍候...');
+
+    const result = await triggerSurveySyncApi({
+      incremental: true,
+      surveyType: selectedSchema.value?.survey_type,
+    });
+
+    ElMessage.success(result.message);
+
+    // 同步完成后刷新数据
+    if (result.success > 0) {
+      executeQuery();
+    }
+  } catch (error: any) {
+    console.error('同步失败:', error);
+    ElMessage.error(error?.message || '同步失败，请稍后重试');
+  } finally {
+    syncing.value = false;
+  }
+}
+
 // 监听配置变化，更新列配置并重新查询
 watch(selectedSchema, (newSchema) => {
   if (newSchema) {
@@ -420,13 +453,7 @@ onMounted(() => {
 
           <!-- 搜索框 -->
           <div class="mb-3">
-            <ElInput
-              v-model="searchKeyword"
-              placeholder="搜索问卷类型..."
-              clearable
-              :prefix-icon="Search"
-              size="small"
-            />
+            <ElInput v-model="searchKeyword" placeholder="搜索问卷类型..." clearable :prefix-icon="Search" size="small" />
           </div>
 
           <!-- 配置列表 -->
@@ -435,25 +462,15 @@ onMounted(() => {
               <template #template>
                 <div class="space-y-2">
                   <div v-for="i in 6" :key="i">
-                    <ElSkeletonItem
-                      variant="text"
-                      style="width: 100%; height: 50px"
-                    />
+                    <ElSkeletonItem variant="text" style="width: 100%; height: 50px" />
                   </div>
                 </div>
               </template>
               <template #default>
-                <ElMenu
-                  v-if="filteredSchemas.length > 0"
-                  :default-active="selectedSchemaId"
-                  @select="handleSchemaChange"
-                >
-                  <ElMenuItem
-                    v-for="schema in filteredSchemas"
-                    :key="schema.id"
-                    :index="schema.id"
-                    class="!h-auto !py-2"
-                  >
+                <ElMenu v-if="filteredSchemas.length > 0" :default-active="selectedSchemaId"
+                  @select="handleSchemaChange">
+                  <ElMenuItem v-for="schema in filteredSchemas" :key="schema.id" :index="schema.id"
+                    class="!h-auto !py-2">
                     <div class="flex flex-col">
                       <span class="text-sm font-medium">
                         {{ schema.survey_name }}
@@ -464,11 +481,7 @@ onMounted(() => {
                     </div>
                   </ElMenuItem>
                 </ElMenu>
-                <ElEmpty
-                  v-else
-                  description="暂无问卷类型"
-                  :image-size="60"
-                >
+                <ElEmpty v-else description="暂无问卷类型" :image-size="60">
                   <template #description>
                     <div class="text-center">
                       <p class="text-sm text-gray-500">暂无问卷类型</p>
@@ -486,12 +499,8 @@ onMounted(() => {
 
       <!-- 数据表格区域 -->
       <div class="flex flex-1 flex-col overflow-hidden">
-        <ElCard
-          v-if="selectedSchema"
-          shadow="never"
-          class="flex h-full flex-col"
-          :body-style="{ padding: '12px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
-        >
+        <ElCard v-if="selectedSchema" shadow="never" class="flex h-full flex-col"
+          :body-style="{ padding: '12px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }">
           <!-- 表头信息 -->
           <div class="mb-3 flex items-center justify-between">
             <div>
@@ -508,6 +517,9 @@ onMounted(() => {
               </p>
             </div>
             <div class="flex gap-2">
+              <ElButton :icon="ReloadOutlined" :loading="syncing" :disabled="syncing" @click="handleSync">
+                同步数据
+              </ElButton>
               <ElDropdown @command="handleExport">
                 <ElButton type="primary" :icon="Download">
                   导出数据
@@ -526,22 +538,15 @@ onMounted(() => {
           </div>
 
           <!-- 搜索表单 -->
-          <div
-            v-if="searchFormSchema.length > 0"
-            class="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-800"
-          >
+          <div v-if="searchFormSchema.length > 0"
+            class="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
             <template v-for="field in searchFormSchema" :key="field.fieldName">
               <div class="flex items-center gap-2">
                 <span class="text-sm text-gray-600 dark:text-gray-300">
                   {{ field.label }}:
                 </span>
-                <ElInput
-                  v-model="searchForm[field.fieldName]"
-                  :placeholder="`请输入${field.label}`"
-                  clearable
-                  size="small"
-                  style="width: 150px"
-                />
+                <ElInput v-model="searchForm[field.fieldName]" :placeholder="`请输入${field.label}`" clearable size="small"
+                  style="width: 150px" />
               </div>
             </template>
             <div class="flex gap-2">
@@ -565,7 +570,7 @@ onMounted(() => {
                         (共 {{ sq.data.length }} 条记录)
                       </span>
                     </h4>
-                    
+
                     <!-- 数组类型：显示为表格 -->
                     <template v-if="sq.type === 'array' && Array.isArray(sq.data)">
                       <div class="overflow-x-auto">
@@ -573,11 +578,8 @@ onMounted(() => {
                           <thead>
                             <tr class="bg-gray-100">
                               <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 border">#</th>
-                              <th 
-                                v-for="key in getArrayItemKeys(sq.data)" 
-                                :key="key"
-                                class="px-3 py-2 text-left text-xs font-medium text-gray-600 border"
-                              >
+                              <th v-for="key in getArrayItemKeys(sq.data)" :key="key"
+                                class="px-3 py-2 text-left text-xs font-medium text-gray-600 border">
                                 {{ formatFieldName(key) }}
                               </th>
                             </tr>
@@ -585,11 +587,7 @@ onMounted(() => {
                           <tbody>
                             <tr v-for="(item, itemIndex) in sq.data" :key="itemIndex" class="hover:bg-gray-50">
                               <td class="px-3 py-2 border text-gray-500">{{ itemIndex + 1 }}</td>
-                              <td 
-                                v-for="key in getArrayItemKeys(sq.data)" 
-                                :key="key"
-                                class="px-3 py-2 border"
-                              >
+                              <td v-for="key in getArrayItemKeys(sq.data)" :key="key" class="px-3 py-2 border">
                                 {{ formatValue(item[key], key) }}
                               </td>
                             </tr>
@@ -597,7 +595,7 @@ onMounted(() => {
                         </table>
                       </div>
                     </template>
-                    
+
                     <!-- 对象类型：原有逻辑 -->
                     <template v-else>
                       <div class="grid grid-cols-4 gap-2 text-sm">
@@ -635,11 +633,7 @@ onMounted(() => {
         </ElCard>
 
         <!-- 未选择配置时的提示 -->
-        <ElCard
-          v-else
-          shadow="never"
-          class="flex h-full items-center justify-center"
-        >
+        <ElCard v-else shadow="never" class="flex h-full items-center justify-center">
           <ElEmpty description="请从左侧选择要查询的问卷类型">
             <template v-if="schemas.length === 0 && !loading" #description>
               <div class="text-center">
@@ -701,4 +695,3 @@ onMounted(() => {
   color: #d1d5db;
 }
 </style>
-
