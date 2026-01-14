@@ -49,6 +49,7 @@ class Command(BaseCommand):
     
     # 大文件阈值（字节）
     LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
+    ULTRA_LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100MB，超过此大小自动使用流式模式
     DEFAULT_MAX_SIZE = 100  # MB
     
     def _setup_detail_logger(self, batch_id):
@@ -246,6 +247,17 @@ class Command(BaseCommand):
             action='store_true',
             help='生成详细的修复报告'
         )
+        parser.add_argument(
+            '--streaming',
+            action='store_true',
+            help='启用流式处理模式（用于超大文件，逐语句执行，内存占用低）'
+        )
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=1000,
+            help='流式处理时每批提交的语句数（默认 1000）'
+        )
     
     def handle(self, *args, **options):
         # 处理 --show-status 参数
@@ -398,6 +410,43 @@ class Command(BaseCommand):
                 )
             
             try:
+                # 超大文件或手动指定流式模式
+                use_streaming = options.get('streaming', False) or file_size > self.ULTRA_LARGE_FILE_THRESHOLD
+                
+                if use_streaming and not options['dry_run']:
+                    # 流式处理超大文件
+                    stmt_count, err_count, err_msgs = self._import_file_streaming(
+                        sql_file,
+                        sql_fixer=sql_fixer,
+                        batch_size=options.get('batch_size', 1000),
+                        continue_on_error=options['continue_on_error']
+                    )
+                    end_time = datetime.now()
+                    duration = (end_time - start_time).total_seconds()
+                    
+                    if err_count == 0:
+                        self.stdout.write(self.style.SUCCESS(
+                            f'  导入成功（{stmt_count} 条语句，耗时 {duration:.1f}秒）'))
+                        self._update_file_status(
+                            batch_id, sql_file.name, str(sql_file), file_size,
+                            'success', end_time=end_time, statements_count=stmt_count
+                        )
+                        success_count += 1
+                    else:
+                        self.stdout.write(self.style.WARNING(
+                            f'  部分成功（{stmt_count} 条成功，{err_count} 条失败，耗时 {duration:.1f}秒）'))
+                        if err_msgs:
+                            self.stdout.write(self.style.ERROR(f'  错误示例: {err_msgs[0][:100]}...'))
+                        # 视为成功（部分成功也算成功）
+                        self._update_file_status(
+                            batch_id, sql_file.name, str(sql_file), file_size,
+                            'success', end_time=end_time, statements_count=stmt_count,
+                            error_message=f'{err_count} 条失败'
+                        )
+                        success_count += 1
+                    continue  # 跳过后续处理，进入下一个文件
+                
+                # 普通文件处理
                 # 根据文件大小选择读取方式
                 if file_size > self.LARGE_FILE_THRESHOLD:
                     sql_content = self._read_file_streaming(sql_file)
@@ -814,3 +863,108 @@ class Command(BaseCommand):
             for line in f:
                 content.append(line)
         return ''.join(content)
+
+    def _import_file_streaming(self, file_path, sql_fixer=None, batch_size=1000, continue_on_error=True):
+        """
+        真正的流式导入超大文件（逐语句处理，内存占用极低）
+        
+        Args:
+            file_path: SQL 文件路径
+            sql_fixer: SQL 修复器实例（可选）
+            batch_size: 每批提交的语句数
+            continue_on_error: 遇到错误是否继续
+            
+        Returns:
+            (success_count, error_count, error_messages)
+        """
+        from django.db import connection
+        
+        self.stdout.write(self.style.WARNING(f'  [流式模式] 逐语句处理，批量提交（每 {batch_size} 条）'))
+        
+        success_count = 0
+        error_count = 0
+        error_messages = []
+        current_stmt_lines = []
+        pending_stmts = []
+        total_fix_count = 0
+        line_number = 0
+        
+        def execute_batch(stmts):
+            """执行一批语句"""
+            nonlocal success_count, error_count, error_messages
+            if not stmts:
+                return
+            
+            with connection.cursor() as cursor:
+                cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
+                for stmt in stmts:
+                    try:
+                        if stmt.strip():
+                            cursor.execute(stmt)
+                            success_count += 1
+                    except Exception as e:
+                        error_count += 1
+                        error_msg = str(e)[:200]
+                        if len(error_messages) < 10:  # 最多记录 10 条错误
+                            error_messages.append(error_msg)
+                        if not continue_on_error:
+                            raise
+                cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
+                connection.commit()
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line_number += 1
+                    stripped = line.strip()
+                    
+                    # 跳过注释
+                    if stripped.startswith('--'):
+                        continue
+                    
+                    current_stmt_lines.append(line)
+                    
+                    # 检查语句是否结束
+                    if stripped.endswith(';'):
+                        stmt = ''.join(current_stmt_lines).strip()
+                        current_stmt_lines = []
+                        
+                        if not stmt or stmt == ';':
+                            continue
+                        
+                        # 移除末尾分号
+                        stmt = stmt.rstrip(';')
+                        
+                        # 应用自动修复
+                        if sql_fixer:
+                            fixed_stmt, fix_count = sql_fixer.fix_sql_content(stmt + ';', f'line_{line_number}')
+                            if fix_count > 0:
+                                total_fix_count += fix_count
+                                stmt = fixed_stmt.rstrip(';')
+                        
+                        pending_stmts.append(stmt)
+                        
+                        # 达到批量大小时提交
+                        if len(pending_stmts) >= batch_size:
+                            execute_batch(pending_stmts)
+                            pending_stmts = []
+                            
+                            # 显示进度
+                            if success_count % 10000 == 0:
+                                self.stdout.write(f'    已处理: {success_count} 条成功, {error_count} 条失败')
+            
+            # 处理剩余语句
+            if current_stmt_lines:
+                stmt = ''.join(current_stmt_lines).strip()
+                if stmt and stmt != ';':
+                    pending_stmts.append(stmt.rstrip(';'))
+            
+            execute_batch(pending_stmts)
+            
+        except Exception as e:
+            error_messages.append(f'文件处理错误: {str(e)[:200]}')
+        
+        if total_fix_count > 0:
+            self.stdout.write(self.style.WARNING(f'  [自动修复] 检测到 {total_fix_count} 处 MySQL 保留字问题'))
+        
+        return success_count, error_count, error_messages

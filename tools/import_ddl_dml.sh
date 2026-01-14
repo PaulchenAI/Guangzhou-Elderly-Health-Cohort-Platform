@@ -24,7 +24,8 @@ SQL_DIR="docs/hospital/convertsql"
 BATCH_ID=""
 DDL_ONLY=false
 DML_ONLY=false
-CONTINUE_ON_ERROR=false
+CONTINUE_ON_ERROR=true
+AUTO_FIX=true
 DRY_RUN=false
 
 # 颜色定义
@@ -47,6 +48,8 @@ print_help() {
     echo "  --ddl-only          仅导入 DDL（表结构）"
     echo "  --dml-only          仅导入 DML（数据）"
     echo "  --continue-on-error 遇到错误继续执行"
+    echo "  --auto-fix          自动修复 MySQL 语法问题（默认启用）"
+    echo "  --no-auto-fix       禁用自动修复"
     echo "  --dry-run           仅显示将要执行的命令，不实际执行"
     echo "  -h, --help          显示帮助信息"
     echo ""
@@ -85,6 +88,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --continue-on-error)
             CONTINUE_ON_ERROR=true
+            shift
+            ;;
+        --auto-fix)
+            AUTO_FIX=true
+            shift
+            ;;
+        --no-auto-fix)
+            AUTO_FIX=false
             shift
             ;;
         --dry-run)
@@ -147,6 +158,9 @@ COMMON_ARGS=""
 if [ "$CONTINUE_ON_ERROR" = true ]; then
     COMMON_ARGS="$COMMON_ARGS --continue-on-error"
 fi
+if [ "$AUTO_FIX" = true ]; then
+    COMMON_ARGS="$COMMON_ARGS --auto-fix"
+fi
 
 # 切换到 backend-django 目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -175,7 +189,7 @@ import_ddl() {
     echo ""
 
     DDL_BATCH="${BATCH_ID}_ddl"
-    CMD="python manage.py import_oracle_sql --batch-id $DDL_BATCH --sql-dir ../$CREATE_DIR $COMMON_ARGS"
+    CMD="python manage.py import_oracle_sql ../$CREATE_DIR --all --batch-id $DDL_BATCH $COMMON_ARGS"
 
     echo -e "执行命令："
     echo -e "${GREEN}$CMD${NC}"
@@ -215,7 +229,7 @@ import_dml() {
     echo ""
 
     DML_BATCH="${BATCH_ID}_dml"
-    CMD="python manage.py import_oracle_sql --batch-id $DML_BATCH --sql-dir ../$INSERT_DIR $COMMON_ARGS"
+    CMD="python manage.py import_oracle_sql ../$INSERT_DIR --all --batch-id $DML_BATCH $COMMON_ARGS"
 
     echo -e "执行命令："
     echo -e "${GREEN}$CMD${NC}"
