@@ -1,0 +1,38 @@
+# 全局设置
+# 注意：环境变量会覆盖此配置（优先级：系统环境变量 > .env > YAML）
+
+# Claude Code CLI配置
+claude_code:
+  timeout: 300
+  max_concurrent: 2
+
+# LLM默认配置
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  max_tokens: 4096
+  temperature: 0.7
+
+# 向量数据库配置
+vector_db:
+  type: chromadb
+  persist_dir: ./data/chroma
+
+# 记忆系统配置
+memory:
+  backend: redis
+  ttl: 86400
+
+# 日志配置
+logging:
+  level: INFO
+  dir: ./logs
+  format: json
+  max_size: 10MB
+  backup_count: 5
+
+# RAG配置
+rag:
+  chunk_size: 1000
+  chunk_overlap: 200
+  top_k: 5

@@ -1,0 +1,31 @@
+# 智能体配置
+
+agents:
+  orchestrator:
+    name: Orchestrator Agent
+    description: 编排智能体，负责任务分解和智能体调度
+    enabled: true
+    temperature: 0.7
+    max_tokens: 4096
+    
+  rag:
+    name: RAG Agent
+    description: 检索增强生成智能体，负责知识库检索
+    enabled: true
+    temperature: 0.3
+    max_tokens: 2048
+    top_k: 5
+    
+  memory:
+    name: Memory Agent
+    description: 记忆管理智能体，负责对话历史和长期记忆
+    enabled: true
+    temperature: 0.5
+    max_tokens: 1024
+    
+  planning:
+    name: Planning Agent
+    description: 规划智能体，负责任务规划和OpenSpec集成
+    enabled: true
+    temperature: 0.7
+    max_tokens: 4096

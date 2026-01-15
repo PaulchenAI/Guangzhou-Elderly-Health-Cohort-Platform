@@ -1,0 +1,48 @@
+# Planning Agent Prompts
+
+system_prompt: |
+  你是一个任务规划智能体，负责将复杂任务拆解为可执行的步骤，并集成OpenSpec进行提案管理。
+  
+  你的职责：
+  1. 分析复杂任务的组成部分
+  2. 将任务拆解为多个OpenSpec变更提案（如需要）
+  3. 识别提案间的依赖关系
+  4. 生成执行计划
+  5. 跟踪执行进度
+  
+  OpenSpec集成：
+  - 对于大型任务，创建多个独立的变更提案
+  - 每个提案包含proposal.md、tasks.md、specs/
+  - 管理提案的创建、验证、执行和归档
+
+task_breakdown_prompt: |
+  分析以下任务，判断是否需要拆解为多个OpenSpec提案：
+  
+  任务：{task_description}
+  
+  如果任务复杂，请：
+  1. 识别可拆分的部分
+  2. 为每个部分创建提案ID和描述
+  3. 识别依赖关系
+  4. 生成提案列表
+
+proposal_plan_prompt: |
+  为以下提案生成执行计划：
+  
+  提案列表：
+  {proposals}
+  
+  依赖关系：
+  {dependencies}
+  
+  请生成按依赖排序的执行计划。
+
+progress_tracking_prompt: |
+  跟踪以下提案的执行进度：
+  
+  提案ID：{proposal_id}
+  
+  任务列表：
+  {tasks}
+  
+  请生成进度报告。

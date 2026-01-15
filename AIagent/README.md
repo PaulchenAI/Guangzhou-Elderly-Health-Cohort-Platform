@@ -1,0 +1,260 @@
+# AIagent - 多智能体AI框架
+
+基于 **LangChain + LangGraph + Claude Code CLI** 的多智能体协作框架，提供代码分析、智能生成、知识检索等AI能力。
+
+## 核心特性
+
+### 🤖 多智能体架构
+- **Orchestrator Agent**：任务分解、智能体调度、结果汇总
+- **RAG Agent**：知识库检索、上下文增强
+- **Memory Agent**：对话历史、长期记忆管理
+- **Planning Agent**：任务规划、OpenSpec集成
+
+### 🔧 Claude Code CLI 核心引擎
+- **本地文件操作**：读取、写入、编辑、搜索文件
+- **Coding能力**：代码分析、生成、重构、Bug修复
+- **上下文理解**：项目结构分析、依赖分析
+
+### 📚 RAG 检索增强
+- 代码库向量索引和语义检索
+- 业务文档知识库
+- 数据库元数据检索
+
+### 🧠 上下文记忆系统
+- 短期对话记忆（会话级）
+- 长期知识记忆（持久化）
+- 分层存储（内存/Redis/向量数据库）
+
+### 📋 OpenSpec 集成
+- 将复杂任务拆解为多个OpenSpec变更提案
+- 自动创建、验证、管理提案
+- 提案依赖关系分析和执行计划
+
+## 前置条件
+
+- Python >= 3.10
+- [Claude Code CLI](https://claude.ai) 已安装并可用
+- [openspec-cn CLI](https://github.com/openspec) 已安装（用于OpenSpec集成）
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 配置环境变量
+
+复制 `.env.example` 到 `.env` 并配置：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件：
+
+```bash
+# Claude Code CLI配置
+CLAUDE_CODE_PATH=/usr/local/bin/claude
+CLAUDE_CODE_WORKING_DIR=/path/to/your/project
+
+# LLM配置（支持多种提供商）
+LLM_PROVIDER=anthropic  # anthropic, openai, local, azure_openai
+LLM_API_KEY=your_api_key
+LLM_MODEL=claude-sonnet-4-20250514
+
+# 向量数据库配置
+CHROMA_PERSIST_DIR=./data/chroma
+
+# 日志配置
+LOG_LEVEL=INFO
+LOG_DIR=./logs
+```
+
+### 3. 初始化
+
+```bash
+# 初始化向量数据库
+python scripts/init_db.py
+
+# 索引代码库（可选）
+python scripts/index_codebase.py
+```
+
+### 4. 使用示例
+
+```python
+from src.utils.config_manager import ConfigManager
+from src.core import build_graph, WorkflowExecutor
+from src.agents import OrchestratorAgent, RAGAgent, MemoryAgent, PlanningAgent
+from src.openspec.manager import OpenSpecManager
+from src.rag.indexer import RAGIndexer
+from src.rag.retriever import RAGRetriever
+from src.memory.manager import MemoryManager
+from langchain_community.embeddings import FakeEmbeddings
+from langchain_core.documents import Document
+
+# 最小可运行示例（不调用外部 LLM/Claude Code CLI）
+cm = ConfigManager()
+
+# RAG：用 FakeEmbeddings + Chroma 建一个最小索引
+embeddings = FakeEmbeddings(size=8)
+indexer = RAGIndexer(persist_dir="./data/chroma", collection_name="aiagent_demo", embeddings=embeddings)
+indexer.add_documents([Document(page_content="项目使用 Django", metadata={"source": "demo_doc"})])
+retriever = RAGRetriever(indexer.vectorstore)
+
+# Memory：使用本地内存后端（避免依赖 Redis）
+mm = MemoryManager(
+    memory_config=cm.get_memory_config(),
+    vector_db_config=cm.get_vector_db_config(),
+)
+
+# OpenSpec：规划使用 OpenSpecManager（不依赖 openspec-cn）
+osm = OpenSpecManager(openspec_root="openspec")
+
+# 构建工作流
+graph = build_graph(
+    orchestrator=OrchestratorAgent(),
+    rag=RAGAgent(retriever),
+    memory=MemoryAgent(mm),
+    planning=PlanningAgent(osm),
+)
+executor = WorkflowExecutor(graph)
+
+# 执行任务
+result = await executor.run("请检索项目文档")
+print(result.get("final_response"))
+```
+
+## API 文档（最小版）
+
+### Claude Code CLI 接口
+
+- 入口类：`src.claude_code.client.ClaudeCodeClient`
+- **文件操作**：`read_file` / `write_file` / `edit_file` / `search_files` / `grep` / `list_dir`
+- **Coding 能力**：`analyze_code` / `generate_code` / `refactor_code` / `fix_bug` / `review_code`
+- **上下文理解**：`understand_project` / `analyze_dependencies` / `semantic_search`
+
+### LLM 客户端接口
+
+- 入口类：`src.llm.factory.LLMFactory`
+- 基类：`src.llm.base.BaseLLMClient`
+- 常用方法：`invoke` / `stream` / `invoke_prompt` / `stream_prompt` / `get_langchain_model`
+
+### OpenSpec 集成接口
+
+- CLI 封装：`src.openspec.client.OpenSpecClient`（依赖本机 `openspec-cn`）
+- 解析器：`src.openspec.parser.OpenSpecParser`
+- 生成器：`src.openspec.generator.OpenSpecGenerator`
+- 验证器：`src.openspec.validator.OpenSpecValidator`
+- 管理器：`src.openspec.manager.OpenSpecManager`
+
+### 智能体 API
+
+- 基类：`src.agents.base_agent.BaseAgent`（统一 `run(state) -> AgentResult`）
+- 编排：`src.agents.orchestrator.OrchestratorAgent`
+- 检索：`src.agents.rag_agent.RAGAgent`
+- 记忆：`src.agents.memory_agent.MemoryAgent`
+- 规划：`src.agents.planning_agent.PlanningAgent`
+
+## 使用示例（补充）
+
+### 复杂任务拆解示例
+
+```python
+from src.openspec.manager import OpenSpecManager
+
+mgr = OpenSpecManager(openspec_root="openspec")
+stubs = mgr.break_down_task("用户认证、权限管理、审计日志")
+plan = mgr.create_proposal_plan(stubs)
+print([p.change_id for p in plan.ordered])
+```
+
+### OpenSpec 提案管理示例
+
+```python
+from src.openspec.client import OpenSpecClient
+
+client = OpenSpecClient()
+changes = await client.list_changes()
+print(changes[:3])
+```
+
+### 配置示例
+
+```python
+from src.utils.config_manager import ConfigManager
+
+cm = ConfigManager()
+print(cm.get_rag_config())
+print(cm.get_memory_config())
+```
+
+## 架构设计
+
+```
+用户请求
+   ↓
+LangGraph 编排层 (Orchestrator)
+   ↓
+[RAG/Memory/Planning] 提供上下文
+   ↓
+★ Claude Code CLI 核心引擎 ★
+  - 文件操作
+  - Coding能力
+  - 上下文理解
+   ↓
+返回结果
+```
+
+## 目录结构
+
+```
+AIagent/
+├── src/                    # 源代码
+│   ├── claude_code/        # Claude Code CLI封装
+│   ├── llm/                # LLM客户端（支持多提供商）
+│   ├── agents/             # 智能体实现
+│   ├── openspec/           # OpenSpec集成
+│   ├── core/               # LangGraph工作流
+│   ├── memory/             # 记忆系统
+│   ├── rag/                # RAG模块
+│   ├── logging/            # 日志系统
+│   └── utils/              # 工具函数
+├── config/                 # 配置文件
+│   ├── prompts/            # Prompts模板
+│   ├── agents.yaml         # 智能体配置
+│   └── settings.yaml       # 全局设置
+├── tests/                  # 测试
+├── scripts/                # 脚本
+├── logs/                   # 日志
+└── data/                   # 数据（向量库等）
+```
+
+## 开发指南
+
+### 运行测试
+
+```bash
+# 单元测试
+pytest tests/
+
+# 集成测试
+pytest tests/test_integration.py
+```
+
+### 代码规范
+
+- 遵循 PEP 8 规范
+- 使用中文编写注释和文档字符串
+- 使用类型提示
+
+## 许可证
+
+MIT License
+
+## 联系方式
+
+- 项目主页：https://github.com/zq-platform/AIagent
+- 问题反馈：https://github.com/zq-platform/AIagent/issues
