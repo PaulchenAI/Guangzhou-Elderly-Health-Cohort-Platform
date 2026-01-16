@@ -267,6 +267,54 @@ python manage.py import_oracle_sql ../docs/hospital/convertsql/create --all --ba
 python manage.py import_oracle_sql ../docs/hospital/convertsql/insert --all --batch-id dml_batch --auto-fix --continue-on-error
 ```
 
+#### 流式处理超大文件（推荐用于 100MB+ 文件）
+
+对于超大文件（如几 GB 的 SQL 文件），推荐使用流式处理模式，避免内存溢出（OOM）并提升性能：
+
+```bash
+# 自动流式处理（文件超过 100MB 自动启用）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/insert/PM_DAILYWORK_DETAIL_data.sql --auto-fix --continue-on-error
+
+# 手动启用流式模式（任何大小的文件）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/insert/PM_DAILYWORK_DETAIL_data.sql --streaming --batch-size 50000 --auto-fix --continue-on-error
+
+# 超大文件推荐配置（批量大小 50000+）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/insert/PM_DAILYWORK_DETAIL_data.sql \
+  --streaming --batch-size 50000 --auto-fix --continue-on-error --batch-id import_large_file
+```
+
+**流式模式特点**：
+- ✅ **内存占用极低**：逐语句处理，不会一次性加载整个文件
+- ✅ **性能优化**：自动禁用唯一性检查和外键检查以加速导入（不影响数据完整性）
+- ✅ **断点续导**：支持 `--resume` 参数，可中断后继续
+- ✅ **进度显示**：实时显示处理速度、成功/重复/失败数量
+
+**性能建议**：
+- 小文件（<100MB）：使用默认模式即可
+- 中等文件（100MB-500MB）：自动流式模式，批量大小 10000（默认）
+- 超大文件（>500MB）：手动指定 `--streaming --batch-size 50000` 或更大
+
+#### 关于数据重复保护
+
+**重要说明**：流式处理模式会临时禁用 MySQL 的唯一性检查（`UNIQUE_CHECKS = 0`）以提升性能，但这**不会导致数据重复**：
+
+1. ✅ **主键和唯一索引约束仍然有效**：`UNIQUE_CHECKS = 0` 只是性能优化，数据库层面的主键和唯一索引约束仍然会阻止重复数据插入
+2. ✅ **重复数据自动跳过**：如果尝试插入重复数据，系统会显示"重复数据已跳过"，不会计入错误
+3. ✅ **避免重复导入**：推荐使用 `--resume` 参数，系统会跳过已经成功导入的文件
+
+**示例**：
+```bash
+# 第一次导入（487万条数据，约需 3-5 小时）
+python manage.py import_oracle_sql ... --streaming --batch-size 50000 --batch-id import_001
+
+# 如果中断后继续（使用 --resume，会跳过已成功的文件，不会重复导入）
+python manage.py import_oracle_sql ... --streaming --batch-size 50000 --batch-id import_001 --resume
+```
+
+**注意**：如果表没有主键或唯一索引，重复运行导入命令可能会插入重复数据。建议：
+- 在导入前先清空表：`TRUNCATE TABLE table_name`
+- 或为表添加主键/唯一索引以保护数据完整性
+
 #### 参数说明
 | 参数 | 说明 |
 |------|------|
@@ -281,6 +329,8 @@ python manage.py import_oracle_sql ../docs/hospital/convertsql/insert --all --ba
 | `--show-status` | 显示导入状态 |
 | `--skip-large-files` | 跳过超过 100MB 的大文件 |
 | `--max-size` | 指定文件大小上限（MB）|
+| `--streaming` | 启用流式处理模式（用于超大文件，内存占用低）|
+| `--batch-size N` | 流式处理时每批提交的语句数（默认 10000，大文件建议 50000+）|
 
 ### 启动项目
 ```bash

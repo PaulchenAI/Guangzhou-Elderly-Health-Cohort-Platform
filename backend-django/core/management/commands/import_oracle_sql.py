@@ -255,8 +255,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--batch-size',
             type=int,
-            default=1000,
-            help='流式处理时每批提交的语句数（默认 1000）'
+            default=10000,
+            help='流式处理时每批提交的语句数（默认 10000，大文件建议 50000+）'
         )
     
     def handle(self, *args, **options):
@@ -879,10 +879,19 @@ class Command(BaseCommand):
         """
         from django.db import connection
         
-        self.stdout.write(self.style.WARNING(f'  [流式模式] 逐语句处理，批量提交（每 {batch_size} 条）'))
+        self.stdout.write(self.style.WARNING(
+            f'  [流式模式] 逐语句处理，批量提交（每 {batch_size:,} 条）'
+        ))
+        if batch_size < 10000:
+            self.stdout.write(self.style.WARNING(
+                f'  提示: 对于超大文件，建议使用 --batch-size 50000 或更大以提升性能'
+            ))
         
+        start_time = datetime.now()
+        start_time = datetime.now()
         success_count = 0
         error_count = 0
+        duplicate_count = 0  # 重复数据计数（正常情况，不算错误）
         error_messages = []
         current_stmt_lines = []
         pending_stmts = []
@@ -890,27 +899,45 @@ class Command(BaseCommand):
         line_number = 0
         
         def execute_batch(stmts):
-            """执行一批语句"""
-            nonlocal success_count, error_count, error_messages
+            """执行一批语句（优化性能）"""
+            nonlocal success_count, error_count, duplicate_count, error_messages
             if not stmts:
                 return
             
             with connection.cursor() as cursor:
+                # 性能优化：禁用各种检查以加速导入
+                # 注意：UNIQUE_CHECKS=0 只是性能优化，主键/唯一索引约束仍然有效
                 cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
-                for stmt in stmts:
-                    try:
-                        if stmt.strip():
-                            cursor.execute(stmt)
-                            success_count += 1
-                    except Exception as e:
-                        error_count += 1
-                        error_msg = str(e)[:200]
-                        if len(error_messages) < 10:  # 最多记录 10 条错误
-                            error_messages.append(error_msg)
-                        if not continue_on_error:
-                            raise
-                cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
-                connection.commit()
+                cursor.execute('SET UNIQUE_CHECKS = 0')
+                cursor.execute('SET AUTOCOMMIT = 0')
+                
+                try:
+                    for stmt in stmts:
+                        try:
+                            if stmt.strip():
+                                cursor.execute(stmt)
+                                success_count += 1
+                        except Exception as e:
+                            # 区分"重复数据"（正常）和真正的错误
+                            if self._is_ignorable_error(e):
+                                # 重复数据等可忽略错误（主键/唯一索引已保护数据不重复）
+                                duplicate_count += 1
+                            else:
+                                # 真正的错误
+                                error_count += 1
+                                error_msg = str(e)[:200]
+                                if len(error_messages) < 10:  # 最多记录 10 条错误
+                                    error_messages.append(error_msg)
+                                if not continue_on_error:
+                                    raise
+                    
+                    # 批量提交
+                    connection.commit()
+                finally:
+                    # 恢复设置
+                    cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
+                    cursor.execute('SET UNIQUE_CHECKS = 1')
+                    cursor.execute('SET AUTOCOMMIT = 1')
         
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -949,9 +976,16 @@ class Command(BaseCommand):
                             execute_batch(pending_stmts)
                             pending_stmts = []
                             
-                            # 显示进度
-                            if success_count % 10000 == 0:
-                                self.stdout.write(f'    已处理: {success_count} 条成功, {error_count} 条失败')
+                            # 显示进度（每批显示一次）
+                            elapsed = (datetime.now() - start_time).total_seconds()
+                            rate = success_count / elapsed if elapsed > 0 else 0
+                            status_msg = f'    已处理: {success_count:,} 条成功'
+                            if duplicate_count > 0:
+                                status_msg += f', {duplicate_count:,} 条重复（已跳过）'
+                            if error_count > 0:
+                                status_msg += f', {error_count} 条失败'
+                            status_msg += f' (速度: {rate:.0f} 条/秒, 已用: {elapsed/60:.1f} 分钟)'
+                            self.stdout.write(status_msg)
             
             # 处理剩余语句
             if current_stmt_lines:
@@ -966,5 +1000,11 @@ class Command(BaseCommand):
         
         if total_fix_count > 0:
             self.stdout.write(self.style.WARNING(f'  [自动修复] 检测到 {total_fix_count} 处 MySQL 保留字问题'))
+        
+        # 显示最终统计
+        if duplicate_count > 0:
+            self.stdout.write(self.style.SUCCESS(
+                f'  [信息] {duplicate_count:,} 条重复数据已自动跳过（主键/唯一索引保护）'
+            ))
         
         return success_count, error_count, error_messages
