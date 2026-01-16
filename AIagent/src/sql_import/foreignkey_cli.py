@@ -17,6 +17,9 @@ def extract_foreignkey_single(args):
     sql_file = args.sql_file
     output_dir = args.output
     overwrite = args.overwrite
+    enable_llm = args.enable_llm
+    api_key = args.anthropic_api_key
+    cache_dir = args.strategy_cache_dir
     
     if not os.path.exists(sql_file):
         print(f"错误：文件不存在 - {sql_file}")
@@ -25,7 +28,11 @@ def extract_foreignkey_single(args):
     print(f"开始提取外键信息: {sql_file}")
     
     # 创建提取器
-    extractor = ForeignKeyExtractor()
+    extractor = ForeignKeyExtractor(
+        enable_llm=enable_llm,
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
     
     # 提取外键
     table_fks = extractor.extract_from_file(sql_file)
@@ -39,6 +46,8 @@ def extract_foreignkey_single(args):
     print(f"  外键数量: {len(table_fks.foreign_keys)}")
     print(f"  文件大小: {table_fks.file_size_mb:.2f} MB")
     print(f"  提取策略: {table_fks.extraction_strategy}")
+    if table_fks.strategy_fingerprint:
+        print(f"  格式指纹: {table_fks.strategy_fingerprint}")
     print(f"  保存路径: {output_file}")
     
     return 0
@@ -51,6 +60,10 @@ def extract_foreignkey_batch(args):
     mode = args.mode
     overwrite = args.overwrite
     verbose = args.verbose
+    enable_llm = args.enable_llm
+    api_key = args.anthropic_api_key
+    cache_dir = args.strategy_cache_dir
+    show_strategies = args.show_strategies
     
     if not os.path.exists(sql_dir):
         print(f"错误：目录不存在 - {sql_dir}")
@@ -64,10 +77,16 @@ def extract_foreignkey_batch(args):
         return 1
     
     print(f"找到 {len(sql_files)} 个 SQL 文件")
+    if enable_llm:
+        print(f"✓ LLM 辅助已启用")
     print(f"开始批量提取...\n")
     
     # 创建提取器
-    extractor = ForeignKeyExtractor()
+    extractor = ForeignKeyExtractor(
+        enable_llm=enable_llm,
+        api_key=api_key,
+        cache_dir=cache_dir
+    )
     
     # 统计信息
     total_files = len(sql_files)
@@ -75,6 +94,8 @@ def extract_foreignkey_batch(args):
     tables_with_fks = 0
     total_fks = 0
     large_files_count = 0
+    strategy_stats = {}
+    llm_api_calls = 0
     
     # 批量提取
     for i, sql_file in enumerate(sql_files, 1):
@@ -94,11 +115,18 @@ def extract_foreignkey_batch(args):
             if table_fks.file_size_mb > 1.0:
                 large_files_count += 1
             
+            # 策略统计
+            strategy = table_fks.extraction_strategy
+            strategy_stats[strategy] = strategy_stats.get(strategy, 0) + 1
+            
+            if strategy == 'llm_generated':
+                llm_api_calls += 1
+            
             # 保存
             if mode == 'per-table':
                 extractor.save_to_json(table_fks, output_dir, overwrite)
             
-            if verbose:
+            if verbose or show_strategies:
                 print(f"  → 外键数量: {len(table_fks.foreign_keys)}, "
                       f"策略: {table_fks.extraction_strategy}")
         
@@ -116,7 +144,19 @@ def extract_foreignkey_batch(args):
     print(f"无外键的表: {processed_files - tables_with_fks}")
     print(f"总外键数: {total_fks}")
     print(f"大文件数量 (>1MB): {large_files_count}")
-    print(f"输出目录: {output_dir}")
+    
+    if show_strategies:
+        print(f"\n策略使用统计:")
+        for strategy, count in sorted(strategy_stats.items(), key=lambda x: x[1], reverse=True):
+            print(f"  {strategy}: {count} 个文件")
+    
+    if enable_llm:
+        print(f"\nLLM 统计:")
+        print(f"  API 调用次数: {llm_api_calls}")
+        estimated_cost = llm_api_calls * 0.003  # 估算每次调用 ~$0.003
+        print(f"  估算成本: ${estimated_cost:.2f} USD")
+    
+    print(f"\n输出目录: {output_dir}")
     
     return 0
 
@@ -145,6 +185,20 @@ def main():
         action='store_true',
         help='覆盖已存在的文件'
     )
+    parser_single.add_argument(
+        '--enable-llm',
+        action='store_true',
+        help='启用 LLM 辅助提取'
+    )
+    parser_single.add_argument(
+        '--anthropic-api-key',
+        help='Claude API 密钥（或设置环境变量 ANTHROPIC_API_KEY）'
+    )
+    parser_single.add_argument(
+        '--strategy-cache-dir',
+        default='docs/hospital/foreignkey/generated_strategies',
+        help='策略缓存目录'
+    )
     
     # 批量提取命令
     parser_batch = subparsers.add_parser(
@@ -172,6 +226,25 @@ def main():
         '--verbose',
         action='store_true',
         help='显示详细进度'
+    )
+    parser_batch.add_argument(
+        '--enable-llm',
+        action='store_true',
+        help='启用 LLM 辅助提取'
+    )
+    parser_batch.add_argument(
+        '--anthropic-api-key',
+        help='Claude API 密钥（或设置环境变量 ANTHROPIC_API_KEY）'
+    )
+    parser_batch.add_argument(
+        '--strategy-cache-dir',
+        default='docs/hospital/foreignkey/generated_strategies',
+        help='策略缓存目录'
+    )
+    parser_batch.add_argument(
+        '--show-strategies',
+        action='store_true',
+        help='显示每个文件使用的策略'
     )
     
     args = parser.parse_args()

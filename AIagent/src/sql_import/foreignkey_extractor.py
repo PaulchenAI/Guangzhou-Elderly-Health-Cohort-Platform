@@ -12,6 +12,8 @@ from pathlib import Path
 from datetime import datetime
 
 from .foreignkey_schema import ForeignKey, TableForeignKeys
+from .foreignkey_llm_helper import LLMHelper
+from .foreignkey_strategy_cache import StrategyCache
 
 
 class ForeignKeyExtractor:
@@ -28,13 +30,19 @@ class ForeignKeyExtractor:
         r'constraint.*references'
     ]
     
-    def __init__(self, enable_llm: bool = False, api_key: Optional[str] = None):
+    def __init__(
+        self, 
+        enable_llm: bool = False, 
+        api_key: Optional[str] = None,
+        cache_dir: Optional[str] = None
+    ):
         """
         初始化外键提取器
         
         Args:
             enable_llm: 是否启用 LLM 辅助
             api_key: Claude API 密钥
+            cache_dir: 策略缓存目录
         """
         self.enable_llm = enable_llm
         self.api_key = api_key
@@ -48,6 +56,17 @@ class ForeignKeyExtractor:
             r'(\s+on\s+delete\s+(cascade|set\s+null|restrict|no\s+action))?',  # 删除规则
             re.IGNORECASE | re.MULTILINE
         )
+        
+        # LLM 助手
+        self.llm_helper = None
+        if enable_llm:
+            self.llm_helper = LLMHelper(api_key)
+            if not self.llm_helper.is_available():
+                print("警告：LLM 功能不可用")
+                self.enable_llm = False
+        
+        # 策略缓存
+        self.strategy_cache = StrategyCache(cache_dir) if cache_dir else None
     
     def check_file_size(self, file_path: str) -> float:
         """
@@ -184,6 +203,120 @@ class ForeignKeyExtractor:
         
         return foreign_keys
     
+    def extract_using_llm(
+        self,
+        sql_content: str,
+        file_name: str,
+        is_large_file: bool = False
+    ) -> Tuple[List[ForeignKey], Optional[str]]:
+        """
+        使用 LLM 辅助提取外键（策略3）
+        
+        Args:
+            sql_content: SQL 文件内容
+            file_name: 文件名
+            is_large_file: 是否为大文件
+            
+        Returns:
+            (外键列表, 格式指纹)
+        """
+        if not self.enable_llm or not self.llm_helper:
+            return [], None
+        
+        print(f"  使用 LLM 辅助提取...")
+        
+        # 1. 提取外键语句块
+        fk_statements = self.llm_helper.extract_fk_statement_blocks(sql_content)
+        
+        if not fk_statements:
+            print(f"  未找到外键语句块")
+            return [], None
+        
+        # 2. 计算格式指纹
+        fingerprint = self.strategy_cache.compute_format_fingerprint(fk_statements)
+        
+        # 3. 检查缓存
+        cached_script = self.strategy_cache.get_cached_script(fingerprint)
+        
+        if cached_script:
+            print(f"  ✓ 找到缓存策略: {fingerprint}")
+            # 使用缓存脚本
+            try:
+                namespace = {}
+                exec(cached_script, namespace)
+                extract_fn = namespace.get('extract_foreignkeys')
+                
+                if extract_fn:
+                    raw_fks = extract_fn(sql_content)
+                    foreign_keys = self._convert_dict_to_fk_objects(raw_fks)
+                    
+                    # 更新使用统计
+                    self.strategy_cache.update_usage(fingerprint)
+                    
+                    return foreign_keys, fingerprint
+            except Exception as e:
+                print(f"  警告：缓存脚本执行失败 - {e}")
+        
+        # 4. 生成新脚本
+        print(f"  生成新的提取脚本...")
+        script_code = self.llm_helper.generate_with_retry(
+            fk_statements,
+            fingerprint,
+            max_retries=2,
+            is_large_file=is_large_file
+        )
+        
+        if not script_code:
+            print(f"  ✗ LLM 脚本生成失败")
+            return [], None
+        
+        # 5. 保存到缓存
+        self.strategy_cache.save_strategy(
+            fingerprint,
+            script_code,
+            f"从 {file_name} 生成",
+            file_name,
+            fk_statements
+        )
+        
+        # 6. 执行提取
+        try:
+            namespace = {}
+            exec(script_code, namespace)
+            extract_fn = namespace.get('extract_foreignkeys')
+            
+            if extract_fn:
+                raw_fks = extract_fn(sql_content)
+                foreign_keys = self._convert_dict_to_fk_objects(raw_fks)
+                
+                return foreign_keys, fingerprint
+        except Exception as e:
+            print(f"  错误：执行生成的脚本失败 - {e}")
+        
+        return [], None
+    
+    def _convert_dict_to_fk_objects(self, raw_fks: List[Dict]) -> List[ForeignKey]:
+        """将字典列表转换为 ForeignKey 对象列表"""
+        foreign_keys = []
+        
+        for raw_fk in raw_fks:
+            try:
+                # 确保字段名大写
+                fk = ForeignKey(
+                    constraint_name=str(raw_fk.get('constraint_name', '')).upper(),
+                    source_table=str(raw_fk.get('source_table', '')).upper(),
+                    source_columns=[col.upper() for col in raw_fk.get('source_columns', [])],
+                    target_table=str(raw_fk.get('target_table', '')).upper(),
+                    target_columns=[col.upper() for col in raw_fk.get('target_columns', [])],
+                    on_delete=raw_fk.get('on_delete')
+                )
+                foreign_keys.append(fk)
+            except Exception as e:
+                print(f"  警告：转换外键对象失败 - {e}")
+                continue
+        
+        return foreign_keys
+    
     def extract_from_file(self, file_path: str) -> TableForeignKeys:
         """
         从单个文件提取外键信息
@@ -199,7 +332,8 @@ class ForeignKeyExtractor:
         file_size_mb = self.check_file_size(file_path)
         
         # 判断文件大小并选择读取方式
-        if self.is_large_file(file_path):
+        is_large = self.is_large_file(file_path)
+        if is_large:
             # 大文件：使用片段提取
             print(f"大文件检测: {file_name} ({file_size_mb:.2f}MB) - 使用片段提取")
             fragments = self.extract_fk_fragments_streaming(file_path)
@@ -208,14 +342,24 @@ class ForeignKeyExtractor:
             # 小文件：直接读取
             sql_content = self.read_small_file(file_path)
         
-        # 使用标准正则表达式提取
+        # 策略 1：使用标准正则表达式提取
         foreign_keys = self.extract_using_standard_regex(sql_content)
+        strategy = 'standard_regex'
+        fingerprint = None
+        
+        # 如果标准正则没有提取到外键，且启用了 LLM
+        if len(foreign_keys) == 0 and self.enable_llm and self.llm_helper:
+            # 策略 3：尝试使用 LLM
+            foreign_keys, fingerprint = self.extract_using_llm(sql_content, file_name, is_large)
+            if len(foreign_keys) > 0:
+                strategy = 'llm_generated'
         
         # 创建表外键信息对象
         table_fks = TableForeignKeys(
             table_name=table_name,
             source_file=file_name,
-            extraction_strategy='standard_regex',
+            extraction_strategy=strategy,
+            strategy_fingerprint=fingerprint,
             foreign_keys=foreign_keys,
             file_size_mb=file_size_mb
         )
