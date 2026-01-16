@@ -191,6 +191,54 @@ print(cm.get_rag_config())
 print(cm.get_memory_config())
 ```
 
+### SQL 外键提取工具
+
+AIagent 提供了强大的 SQL 外键信息提取工具，支持从 Oracle SQL 文件中提取外键约束信息。
+
+#### 快速开始
+
+```bash
+# 单文件提取
+python -m AIagent.src.sql_import extract-foreignkey \
+  docs/hospital/sql/YOUR_TABLE.sql \
+  --output docs/hospital/foreignkey
+
+# 批量提取
+python -m AIagent.src.sql_import extract-foreignkey-all \
+  docs/hospital/sql \
+  --output docs/hospital/foreignkey \
+  --verbose
+```
+
+#### 核心特性
+
+- **多策略提取**：支持标准正则表达式、格式变体脚本库、LLM 辅助生成
+- **大文件优化**：自动检测大文件（>1MB），使用流式处理和片段提取
+- **LLM 集成**：默认启用 LLM 辅助，自动处理非标准格式（支持多种 LLM 提供商）
+- **智能缓存**：LLM 生成的脚本自动缓存，相同格式直接复用
+- **结构化输出**：JSON 格式，包含完整的外键元数据
+
+#### 使用示例
+
+```python
+from AIagent.src.sql_import.foreignkey_extractor import ForeignKeyExtractor
+
+# 创建提取器（默认启用 LLM）
+extractor = ForeignKeyExtractor()
+
+# 提取单个文件
+table_fks = extractor.extract_from_file('path/to/file.sql')
+
+# 保存为 JSON
+output_file = extractor.save_to_json(table_fks, 'output_dir')
+```
+
+#### 详细文档
+
+- [快速开始指南](../../docs/hospital/docs/QUICK_START.md)
+- [LLM 使用指南](../../docs/hospital/docs/LLM_USAGE_GUIDE.md)
+- [通用 LLM 支持](../../docs/hospital/docs/GENERIC_LLM_SUPPORT.md)
+
 ## 架构设计
 
 ```

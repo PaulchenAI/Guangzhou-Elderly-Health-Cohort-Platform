@@ -17,8 +17,9 @@ def extract_foreignkey_single(args):
     sql_file = args.sql_file
     output_dir = args.output
     overwrite = args.overwrite
-    enable_llm = args.enable_llm
-    api_key = args.anthropic_api_key
+    # 默认启用 LLM（如果未明确禁用）
+    enable_llm = getattr(args, 'enable_llm', True)
+    api_key = getattr(args, 'llm_api_key', None)
     cache_dir = args.strategy_cache_dir
     
     if not os.path.exists(sql_file):
@@ -60,8 +61,9 @@ def extract_foreignkey_batch(args):
     mode = args.mode
     overwrite = args.overwrite
     verbose = args.verbose
-    enable_llm = args.enable_llm
-    api_key = args.anthropic_api_key
+    # 默认启用 LLM（如果未明确禁用）
+    enable_llm = getattr(args, 'enable_llm', True)
+    api_key = getattr(args, 'llm_api_key', None)
     cache_dir = args.strategy_cache_dir
     show_strategies = args.show_strategies
     
@@ -186,13 +188,15 @@ def main():
         help='覆盖已存在的文件'
     )
     parser_single.add_argument(
-        '--enable-llm',
-        action='store_true',
-        help='启用 LLM 辅助提取'
+        '--disable-llm',
+        action='store_false',
+        dest='enable_llm',
+        default=True,
+        help='禁用 LLM 辅助提取（默认启用 LLM）'
     )
     parser_single.add_argument(
-        '--anthropic-api-key',
-        help='Claude API 密钥（或设置环境变量 ANTHROPIC_API_KEY）'
+        '--llm-api-key',
+        help='LLM API 密钥（或使用 AIagent 配置管理器）'
     )
     parser_single.add_argument(
         '--strategy-cache-dir',
@@ -228,13 +232,15 @@ def main():
         help='显示详细进度'
     )
     parser_batch.add_argument(
-        '--enable-llm',
-        action='store_true',
-        help='启用 LLM 辅助提取'
+        '--disable-llm',
+        action='store_false',
+        dest='enable_llm',
+        default=True,
+        help='禁用 LLM 辅助提取（默认启用 LLM）'
     )
     parser_batch.add_argument(
-        '--anthropic-api-key',
-        help='Claude API 密钥（或设置环境变量 ANTHROPIC_API_KEY）'
+        '--llm-api-key',
+        help='LLM API 密钥（或使用 AIagent 配置管理器）'
     )
     parser_batch.add_argument(
         '--strategy-cache-dir',

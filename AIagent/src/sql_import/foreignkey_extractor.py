@@ -15,6 +15,13 @@ from .foreignkey_schema import ForeignKey, TableForeignKeys
 from .foreignkey_llm_helper import LLMHelper
 from .foreignkey_strategy_cache import StrategyCache
 
+# 尝试导入 AIagent 配置管理器
+try:
+    from ...utils.config_manager import ConfigManager
+    _HAS_CONFIG_MANAGER = True
+except ImportError:
+    _HAS_CONFIG_MANAGER = False
+
 
 class ForeignKeyExtractor:
     """外键提取器 - 支持多策略提取"""
@@ -32,7 +39,7 @@ class ForeignKeyExtractor:
     
     def __init__(
         self, 
-        enable_llm: bool = False, 
+        enable_llm: bool = True, 
         api_key: Optional[str] = None,
         cache_dir: Optional[str] = None
     ):
@@ -40,12 +47,26 @@ class ForeignKeyExtractor:
         初始化外键提取器
         
         Args:
-            enable_llm: 是否启用 LLM 辅助
-            api_key: Claude API 密钥
+            enable_llm: 是否启用 LLM 辅助（默认：True）
+            api_key: Claude API 密钥（如果为 None，将从 AIagent 配置或环境变量获取）
             cache_dir: 策略缓存目录
         """
         self.enable_llm = enable_llm
-        self.api_key = api_key
+        
+        # 如果没有提供 API 密钥，尝试从 AIagent 配置获取
+        self.llm_config = None
+        if enable_llm:
+            if api_key is None:
+                # 尝试从配置管理器获取 LLM 配置
+                if _HAS_CONFIG_MANAGER:
+                    try:
+                        config_manager = ConfigManager()
+                        self.llm_config = config_manager.get_llm_config()
+                    except Exception:
+                        pass
+            else:
+                # 如果提供了 api_key，创建临时配置（向后兼容）
+                self.api_key = api_key
         
         # 标准正则表达式模式
         self.standard_pattern = re.compile(
@@ -60,9 +81,14 @@ class ForeignKeyExtractor:
         # LLM 助手
         self.llm_helper = None
         if enable_llm:
-            self.llm_helper = LLMHelper(api_key)
+            # 优先使用 LLM 配置对象，否则使用 api_key（向后兼容）
+            if self.llm_config:
+                self.llm_helper = LLMHelper(llm_config=self.llm_config)
+            else:
+                self.llm_helper = LLMHelper(api_key=getattr(self, 'api_key', None))
+            
             if not self.llm_helper.is_available():
-                print("警告：LLM 功能不可用")
+                print("警告：LLM 功能不可用，将仅使用标准正则表达式提取")
                 self.enable_llm = False
         
         # 策略缓存

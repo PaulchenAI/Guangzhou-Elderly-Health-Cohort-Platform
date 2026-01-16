@@ -22,16 +22,30 @@ def test_llm_helper():
     print("测试 LLM 助手功能")
     print("=" * 60)
     
-    # 1. 检查 API 密钥
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        print("错误：未设置 ANTHROPIC_API_KEY 环境变量")
-        print("\n要测试 LLM 功能，请先设置 API 密钥：")
-        print("  export ANTHROPIC_API_KEY='your-api-key'")
-        return False
-    
-    # 2. 初始化 LLM 助手
-    helper = LLMHelper(api_key)
+    # 1. 尝试从配置管理器获取 LLM 配置
+    try:
+        from AIagent.src.utils.config_manager import ConfigManager
+        config_manager = ConfigManager()
+        llm_config = config_manager.get_llm_config()
+        print(f"✓ 从配置管理器获取 LLM 配置:")
+        print(f"  提供商: {llm_config.provider}")
+        print(f"  模型: {llm_config.model}")
+        print(f"  有 API 密钥: {bool(llm_config.api_key)}\n")
+        
+        # 使用配置初始化 LLM 助手
+        helper = LLMHelper(llm_config=llm_config)
+    except Exception as e:
+        print(f"警告：无法从配置管理器获取配置 - {e}")
+        # 回退到环境变量
+        api_key = os.environ.get('LLM_API_KEY') or os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            print("错误：未设置 LLM 配置")
+            print("\n要测试 LLM 功能，请配置以下之一：")
+            print("  1. AIagent 配置管理器（推荐）")
+            print("  2. 环境变量: export LLM_API_KEY='your-api-key'")
+            return False
+        
+        helper = LLMHelper(api_key=api_key)
     
     if not helper.is_available():
         print("错误：LLM 不可用")

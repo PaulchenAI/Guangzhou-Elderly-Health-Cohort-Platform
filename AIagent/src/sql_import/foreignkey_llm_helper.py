@@ -1,40 +1,97 @@
 # -*- coding: utf-8 -*-
 """
 LLM 辅助外键提取脚本生成
-使用 Claude API 分析未知格式并生成提取脚本
+使用 AIagent 通用 LLM 客户端分析未知格式并生成提取脚本
 """
 
 import os
 import re
 import json
-from typing import List, Optional, Dict
+import asyncio
+from typing import List, Optional, Dict, TYPE_CHECKING
 from datetime import datetime
+
+# 尝试导入 AIagent LLM 客户端
+if TYPE_CHECKING:
+    from AIagent.src.utils.config_models import LLMConfig
+
+try:
+    # 尝试绝对导入
+    from AIagent.src.llm.factory import LLMFactory
+    from AIagent.src.utils.config_manager import ConfigManager
+    from AIagent.src.utils.config_models import LLMConfig
+    _HAS_LLM_CLIENT = True
+except ImportError:
+    try:
+        # 回退到相对导入
+        from ...llm.factory import LLMFactory
+        from ...utils.config_manager import ConfigManager
+        from ...utils.config_models import LLMConfig
+        _HAS_LLM_CLIENT = True
+    except ImportError:
+        _HAS_LLM_CLIENT = False
+        # 定义占位符类型
+        if not TYPE_CHECKING:
+            LLMConfig = None
 
 
 class LLMHelper:
-    """LLM 辅助工具 - 使用 Claude API 生成提取脚本"""
+    """LLM 辅助工具 - 使用 AIagent 通用 LLM 客户端生成提取脚本"""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, llm_config: Optional['LLMConfig'] = None):
         """
         初始化 LLM Helper
         
         Args:
-            api_key: Anthropic API 密钥
+            api_key: API 密钥（已弃用，建议使用 llm_config）
+            llm_config: LLM 配置对象（优先使用）
         """
-        self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
-        self.client = None
+        self.llm_client = None
+        self.llm_config = llm_config
         
-        if self.api_key:
+        # 如果没有提供配置，尝试从配置管理器获取
+        if not self.llm_config and _HAS_LLM_CLIENT:
             try:
-                from anthropic import Anthropic
-                self.client = Anthropic(api_key=self.api_key)
-            except ImportError:
-                print("警告：未安装 anthropic 包，LLM 功能将不可用")
-                print("安装命令: pip install anthropic")
+                config_manager = ConfigManager()
+                self.llm_config = config_manager.get_llm_config()
+                
+                # 如果提供了 api_key，更新配置
+                if api_key:
+                    # 创建新的配置对象，更新 api_key
+                    config_dict = self.llm_config.model_dump()
+                    config_dict['api_key'] = api_key
+                    self.llm_config = LLMConfig(**config_dict)
+            except Exception as e:
+                print(f"警告：无法从配置管理器获取 LLM 配置 - {e}")
+        
+        # 如果仍然没有配置，尝试使用环境变量创建默认配置
+        if not self.llm_config:
+            api_key = api_key or os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('LLM_API_KEY')
+            if api_key:
+                # 默认使用 anthropic 配置
+                provider = os.environ.get('LLM_PROVIDER', 'anthropic')
+                model = os.environ.get('LLM_MODEL', 'claude-sonnet-4-20250514')
+                self.llm_config = LLMConfig(
+                    provider=provider,
+                    api_key=api_key,
+                    model=model
+                )
+        
+        # 创建 LLM 客户端
+        if self.llm_config and _HAS_LLM_CLIENT:
+            try:
+                self.llm_client = LLMFactory.create_llm(self.llm_config)
+                if self.llm_client is None:
+                    print("警告：LLM 工厂返回 None")
+            except Exception as e:
+                import traceback
+                print(f"警告：创建 LLM 客户端失败 - {e}")
+                print(f"详细错误：{traceback.format_exc()}")
+                self.llm_client = None
     
     def is_available(self) -> bool:
         """检查 LLM 是否可用"""
-        return self.client is not None
+        return self.llm_client is not None
     
     def estimate_tokens(self, text: str) -> int:
         """
@@ -116,7 +173,7 @@ class LLMHelper:
         is_large_file: bool = False
     ) -> Optional[str]:
         """
-        使用 Claude API 生成外键提取脚本
+        使用通用 LLM 客户端生成外键提取脚本
         
         Args:
             fk_statements: 外键语句示例列表
@@ -127,7 +184,7 @@ class LLMHelper:
             生成的 Python 代码，如果失败则返回 None
         """
         if not self.is_available():
-            print("错误：LLM 不可用，请配置 ANTHROPIC_API_KEY")
+            print("错误：LLM 不可用，请配置 LLM_API_KEY 或使用 AIagent 配置管理器")
             return None
         
         if not fk_statements:
@@ -212,26 +269,22 @@ def extract_foreignkeys(sql_content: str) -> List[Dict[str, any]]:
 请只输出代码，不要包含 markdown 标记或其他文字。"""
 
         try:
-            # 调用 Claude API
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2000,
-                temperature=0.1,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+            # 使用 AIagent 通用 LLM 客户端（异步调用）
+            response = asyncio.run(
+                self.llm_client.invoke_prompt(
+                    prompt=prompt,
+                    temperature=0.1,
+                    max_tokens=2000
+                )
             )
             
-            # 提取代码
-            code = response.content[0].text
-            
             # 清理代码（移除可能的 markdown 标记）
-            code = self._extract_code_block(code)
+            code = self._extract_code_block(response)
             
             return code
         
         except Exception as e:
-            print(f"错误：调用 Claude API 失败 - {e}")
+            print(f"错误：调用 LLM 失败 - {e}")
             return None
     
     def _extract_code_block(self, text: str) -> str:
