@@ -59,9 +59,17 @@ export function buildColumns(
     for (const field of config.config_json.fields) {
         if (!field.visible) continue;
 
+        // 生成列标题：如果 displayName 存在且与 name 不同，显示 "中文名称 (字段名)"，否则只显示字段名
+        let title: string;
+        if (field.displayName && field.displayName.trim() && field.displayName !== field.name) {
+            title = `${field.displayName} (${field.name})`;
+        } else {
+            title = field.name;
+        }
+
         columns.push({
             field: field.name,
-            title: field.displayName,
+            title,
             minWidth: field.width || 120,
             sortable: field.sortable,
             showOverflow: true,
