@@ -43,12 +43,92 @@ python manage.py makemigrations core scheduler
 ```bash
 python manage.py migrate
 ```
+
+### 迁移状态检查和修复
+
+如果重置过数据库或遇到迁移记录与数据库表不一致的情况，可以使用以下命令进行检查和修复。
+
+#### 检查迁移状态
+```bash
+# 检查所有应用的迁移状态
+python manage.py check_migrations
+
+# 检查指定应用（如 core）
+python manage.py check_migrations --app core
+
+# 显示详细信息（包括表和迁移记录详情）
+python manage.py check_migrations --app core --detailed
+```
+
+#### 修复迁移不一致问题
+
+当迁移记录与数据库表不一致时（例如：迁移记录显示已应用，但表不存在；或表已存在，但迁移记录缺失）：
+
+**方法 1：使用自动修复命令（推荐）**
+```bash
+# 先查看将要执行的操作（模拟模式）
+python manage.py fix_migrations --app core --dry-run
+
+# 执行实际修复
+python manage.py fix_migrations --app core
+```
+
+**方法 2：手动修复（最直接）**
+
+如果遇到 `0005_table_query` 迁移记录存在但表不存在的情况：
+```bash
+python manage.py shell
+```
+
+在 Django shell 中执行：
+```python
+from django.db.migrations.recorder import MigrationRecorder
+from django.utils import timezone
+
+# 删除错误的迁移记录
+MigrationRecorder.Migration.objects.filter(app='core', name='0005_table_query').delete()
+
+# 如果 0006 的表已存在但记录缺失，创建迁移记录
+if not MigrationRecorder.Migration.objects.filter(app='core', name='0006_add_survey_models').exists():
+    MigrationRecorder.Migration.objects.create(
+        app='core',
+        name='0006_add_survey_models',
+        applied=timezone.now()
+    )
+
+exit()
+```
+
+然后重新应用迁移：
+```bash
+# 应用 0005 迁移创建表
+python manage.py migrate core 0005
+
+# 如果 0006 的表已存在，伪造迁移记录
+python manage.py migrate core 0006 --fake
+
+# 验证修复结果
+python manage.py check_migrations --app core --detailed
+```
+
+#### 常见问题
+
+1. **表不存在但迁移记录显示已应用**
+   - 解决：删除迁移记录后重新应用迁移
+
+2. **表已存在但迁移记录缺失**
+   - 解决：使用 `--fake` 参数伪造迁移记录：`python manage.py migrate <app> <migration> --fake`
+
+3. **重置数据库后迁移状态不同步**
+   - 解决：运行检查命令查看状态，然后根据提示修复
+
 ### 初始化数据
 ```bash
 python manage.py loaddata db_init.json
 ```
 
 ### 初始化菜单（可选）
+
 ```bash
 # 初始化表查询菜单
 python manage.py init_table_query_menus
@@ -60,6 +140,11 @@ python manage.py init_survey_menus
 python manage.py init_table_query_menus --force
 python manage.py init_survey_menus --force
 ```
+
+**注意**：
+- 如果表查询相关的表（`table_query_config`、`table_query_log`）不存在，菜单初始化命令会显示警告，但不会中断执行
+- 表不存在时，请先运行迁移：`python manage.py migrate core`
+- 如果遇到迁移问题，参考上面的"迁移状态检查和修复"章节
 
 ### 同步问卷 Schema（可选）
 从外部问卷调查 API 同步问卷 Schema 定义到本地数据库。

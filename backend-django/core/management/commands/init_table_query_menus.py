@@ -8,6 +8,7 @@
     python manage.py init_table_query_menus --force  # 强制重新创建
 """
 from django.core.management.base import BaseCommand
+from django.db.utils import ProgrammingError
 from core.menu.menu_model import Menu
 from core.table_query.table_query_model import TableQueryConfig
 
@@ -69,9 +70,35 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.NOTICE("○ 菜单已存在：表数据查询"))
         
-        # 统计信息
-        configs = TableQueryConfig.objects.filter(is_active=True, is_deleted=False)
-        config_count = configs.count()
+        # 统计信息 - 检查表是否存在
+        config_count = 0
+        table_exists = False
+        try:
+            configs = TableQueryConfig.objects.filter(is_active=True, is_deleted=False)
+            config_count = configs.count()
+            table_exists = True
+        except ProgrammingError:
+            # 表不存在，给出提示但不影响菜单创建
+            table_name = TableQueryConfig._meta.db_table
+            self.stdout.write("")
+            self.stdout.write(self.style.WARNING(
+                f"⚠️  表 '{table_name}' 尚未创建"
+            ))
+            self.stdout.write(self.style.WARNING(
+                "   提示: 请先运行迁移创建表，或运行检查脚本查看详细状态"
+            ))
+            self.stdout.write(self.style.WARNING(
+                "   python manage.py migrate core"
+            ))
+            self.stdout.write(self.style.WARNING(
+                "   python manage.py check_migrations --app core"
+            ))
+        except Exception as e:
+            # 其他异常，给出提示但不影响菜单创建
+            self.stdout.write("")
+            self.stdout.write(self.style.ERROR(
+                f"⚠️  获取配置统计信息时出错: {str(e)}"
+            ))
         
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=" * 50))
@@ -79,10 +106,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("=" * 50))
         self.stdout.write(f"  - 父菜单: {'新建' if parent_created else '已存在'}")
         self.stdout.write(f"  - 主菜单: {'新建' if main_created else '已存在'}")
-        self.stdout.write(f"  - 可用配置数: {config_count}")
+        if table_exists:
+            self.stdout.write(f"  - 可用配置数: {config_count}")
         self.stdout.write("")
         
-        if config_count == 0:
+        if table_exists and config_count == 0:
             self.stdout.write(self.style.WARNING(
                 "提示: 当前没有表查询配置，请先通过 API 或 Admin 创建配置"
             ))
