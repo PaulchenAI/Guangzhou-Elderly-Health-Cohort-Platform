@@ -18,7 +18,12 @@
     
     # 更新现有配置的字段（重新检测表结构）
     python manage.py batch_create_table_configs --prefix BS --update
+    
+    # 使用外部配置文件指定中文名称映射
+    python manage.py batch_create_table_configs --prefix WORKFLOW --config-file path/to/mapping.json
 """
+import json
+import os
 from django.core.management.base import BaseCommand
 from django.db import connection
 from core.table_query.table_query_model import TableQueryConfig
@@ -28,22 +33,6 @@ from core.table_query.table_query_model import TableQueryConfig
 SYSTEM_TABLE_PREFIXES = [
     'core_', 'django_', 'auth_', 'table_query_', 'apscheduler_'
 ]
-
-# 表名到显示名称的映射（常见前缀）
-TABLE_PREFIX_NAMES = {
-    'WORKFLOW_': '工作流-',
-    'BS_': '基础数据-',
-    'BSE_': '基础扩展-',
-    'CA_': '护理-',
-    'WM_': '仓库物资-',
-    'NR_': '护理记录-',
-    'FD_': '餐饮-',
-    'FIN_': '财务-',
-    'HR_': '人事-',
-    'OA_': '办公-',
-    'PM_': '项目-',
-    'SYS_': '系统-',
-}
 
 
 class Command(BaseCommand):
@@ -76,6 +65,12 @@ class Command(BaseCommand):
             default=30,
             help='每个表最多配置的字段数（默认30）',
         )
+        parser.add_argument(
+            '--config-file',
+            type=str,
+            default=None,
+            help='外部配置文件路径（JSON格式，包含表名和字段名的中文映射），默认使用 core/management/commands/table_name_mapping.json',
+        )
 
     def handle(self, *args, **options):
         list_only = options.get('list', False)
@@ -83,6 +78,10 @@ class Command(BaseCommand):
         process_all = options.get('all', False)
         update_existing = options.get('update', False)
         max_fields = options.get('max_fields', 30)
+        config_file = options.get('config_file')
+        
+        # 加载配置文件
+        name_mapping = self._load_name_mapping(config_file)
         
         # 获取所有表
         tables = self._get_tables(prefix)
@@ -102,7 +101,7 @@ class Command(BaseCommand):
             return
         
         # 批量创建配置
-        self._create_configs(tables, update_existing, max_fields)
+        self._create_configs(tables, update_existing, max_fields, name_mapping)
 
     def _get_tables(self, prefix=None):
         """获取数据库中的表"""
@@ -152,7 +151,7 @@ class Command(BaseCommand):
         configured_count = TableQueryConfig.objects.filter(is_deleted=False).count()
         self.stdout.write(f"\n当前已配置: {configured_count} 个表")
 
-    def _create_configs(self, tables, update_existing, max_fields):
+    def _create_configs(self, tables, update_existing, max_fields, name_mapping):
         """批量创建配置"""
         created_count = 0
         updated_count = 0
@@ -171,14 +170,14 @@ class Command(BaseCommand):
                     continue
                 
                 # 获取表结构
-                fields = self._detect_table_structure(table, max_fields)
+                fields = self._detect_table_structure(table, max_fields, name_mapping)
                 if not fields:
                     self.stdout.write(self.style.WARNING(f"  跳过 {table}: 无法获取表结构"))
                     error_count += 1
                     continue
                 
                 # 生成显示名称
-                display_name = self._generate_display_name(table)
+                display_name = self._generate_display_name(table, name_mapping)
                 
                 # 生成配置
                 config_json = {
@@ -191,10 +190,11 @@ class Command(BaseCommand):
                 
                 if existing:
                     # 更新现有配置
+                    existing.display_name = display_name
                     existing.config_json = config_json
                     existing.save()
                     updated_count += 1
-                    self.stdout.write(self.style.NOTICE(f"  ○ 更新: {table}"))
+                    self.stdout.write(self.style.NOTICE(f"  ○ 更新: {table} -> {display_name}"))
                 else:
                     # 创建新配置
                     TableQueryConfig.objects.create(
@@ -205,7 +205,7 @@ class Command(BaseCommand):
                         is_active=True,
                     )
                     created_count += 1
-                    self.stdout.write(self.style.SUCCESS(f"  ✓ 创建: {table}"))
+                    self.stdout.write(self.style.SUCCESS(f"  ✓ 创建: {table} -> {display_name}"))
                     
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"  ✗ 错误 {table}: {e}"))
@@ -224,21 +224,39 @@ class Command(BaseCommand):
         total = TableQueryConfig.objects.filter(is_deleted=False).count()
         self.stdout.write(f"\n当前总配置数: {total}")
 
-    def _detect_table_structure(self, table_name, max_fields):
+    def _detect_table_structure(self, table_name, max_fields, name_mapping):
         """自动检测表结构"""
         try:
             with connection.cursor() as cursor:
-                cursor.execute(f"DESCRIBE `{table_name}`")
+                # 获取字段信息和注释
+                cursor.execute("""
+                    SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_KEY, COLUMN_COMMENT
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = %s
+                    ORDER BY ORDINAL_POSITION
+                    LIMIT %s
+                """, [table_name, max_fields])
                 columns = cursor.fetchall()
             
             if not columns:
                 return None
             
             fields = []
-            for col in columns[:max_fields]:
+            for col in columns:
                 col_name = col[0]
                 col_type = col[1].lower()
-                col_key = col[3]  # PRI, UNI, MUL
+                col_key = col[2]  # PRI, UNI, MUL
+                col_comment = col[3] or ''  # COMMENT
+                
+                # 获取字段的中文显示名称（优先级：COMMENT > 配置文件 > 字段名）
+                field_display_name = col_name
+                if col_comment and col_comment.strip():
+                    field_display_name = col_comment.strip()
+                elif name_mapping and 'fields' in name_mapping:
+                    table_fields = name_mapping['fields'].get(table_name, {})
+                    if col_name in table_fields:
+                        field_display_name = table_fields[col_name]
                 
                 # 映射数据库类型到前端类型
                 if 'int' in col_type:
@@ -260,7 +278,7 @@ class Command(BaseCommand):
                 
                 fields.append({
                     "name": col_name,
-                    "displayName": col_name,
+                    "displayName": field_display_name,
                     "type": field_type,
                     "searchable": is_searchable,
                     "sortable": is_sortable,
@@ -274,11 +292,65 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"    检测表结构失败: {e}"))
             return None
 
-    def _generate_display_name(self, table_name):
-        """生成显示名称"""
-        for prefix, name in TABLE_PREFIX_NAMES.items():
-            if table_name.upper().startswith(prefix):
-                suffix = table_name[len(prefix):]
-                return f"{name}{suffix}"
+    def _load_name_mapping(self, config_file=None):
+        """加载名称映射配置文件"""
+        if config_file is None:
+            # 使用默认配置文件路径
+            default_config = os.path.join(
+                os.path.dirname(__file__),
+                'table_name_mapping.json'
+            )
+            config_file = default_config
+        
+        if not os.path.exists(config_file):
+            # 配置文件不存在，返回 None
+            return None
+        
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                mapping = json.load(f)
+                return mapping
+        except json.JSONDecodeError as e:
+            self.stdout.write(self.style.WARNING(
+                f"配置文件格式错误: {config_file}, {e}。将忽略配置文件。"
+            ))
+            return None
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(
+                f"读取配置文件失败: {config_file}, {e}。将忽略配置文件。"
+            ))
+            return None
+    
+    def _get_table_comment(self, table_name):
+        """从数据库获取表的 COMMENT"""
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT TABLE_COMMENT
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = %s
+                """, [table_name])
+                result = cursor.fetchone()
+                if result and result[0] and result[0].strip():
+                    return result[0].strip()
+        except Exception as e:
+            # 静默失败，不影响主流程
+            pass
+        return None
+    
+    def _generate_display_name(self, table_name, name_mapping):
+        """生成显示名称（优先级：数据库 COMMENT > 配置文件 > 表名）"""
+        # 1. 优先使用数据库表的 COMMENT
+        table_comment = self._get_table_comment(table_name)
+        if table_comment:
+            return table_comment
+        
+        # 2. 使用配置文件中的映射
+        if name_mapping and 'tables' in name_mapping:
+            if table_name in name_mapping['tables']:
+                return name_mapping['tables'][table_name]
+        
+        # 3. 返回表名本身
         return table_name
 
