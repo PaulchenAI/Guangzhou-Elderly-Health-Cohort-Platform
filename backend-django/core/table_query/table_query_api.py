@@ -324,6 +324,43 @@ def get_total_count(table_name: str, where_clauses: List[str], params: List[Any]
         return cursor.fetchone()[0]
 
 
+def _resolve_config_by_name(config_name: str) -> TableQueryConfig:
+    """
+    根据配置名称解析配置（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回显示名称完全匹配的配置
+    2. 如果没有完全匹配，返回显示名称包含关键字的第一个配置
+    3. 如果都没有匹配，抛出 HttpError
+    
+    Args:
+        config_name: 配置名称
+    
+    Returns:
+        TableQueryConfig: 匹配的配置
+    
+    Raises:
+        HttpError: 未找到匹配的配置
+    """
+    # 优先精确匹配
+    config = TableQueryConfig.objects.filter(
+        display_name=config_name, 
+        is_deleted=False
+    ).first()
+    if config:
+        return config
+    
+    # 模糊匹配
+    config = TableQueryConfig.objects.filter(
+        display_name__icontains=config_name, 
+        is_deleted=False
+    ).first()
+    if config:
+        return config
+    
+    raise HttpError(400, f"未找到名称匹配 '{config_name}' 的表查询配置")
+
+
 # =============================================================================
 # 配置管理 API
 # =============================================================================
@@ -386,6 +423,38 @@ def get_config(request, config_id: str):
     return get_object_or_404(TableQueryConfig, id=config_id, is_deleted=False)
 
 
+@router.get("/table-query/configs/by-name/{name}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="按名称查询配置")
+def get_config_by_name(request, name: str):
+    """
+    按配置名称查询表查询配置（支持模糊匹配）
+    
+    路径参数:
+    - name: 配置显示名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回显示名称完全匹配的配置
+    2. 如果没有完全匹配，返回显示名称包含关键字的第一个配置
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的配置名称，无需获取 ID。
+    
+    示例:
+    - /table-query/configs/by-name/用户表查询 → 精确匹配
+    - /table-query/configs/by-name/用户 → 模糊匹配到"用户表查询"
+    """
+    # 优先精确匹配
+    config = TableQueryConfig.objects.filter(display_name=name, is_deleted=False).first()
+    if config:
+        return config
+    
+    # 模糊匹配
+    config = TableQueryConfig.objects.filter(display_name__icontains=name, is_deleted=False).first()
+    if config:
+        return config
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的表查询配置")
+
+
 @router.put("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="更新表查询配置")
 def update_config(request, config_id: str, data: TableQueryConfigSchemaPatch):
     """
@@ -421,8 +490,17 @@ def execute_query(request, data: TableQueryIn):
     """
     执行动态表查询，支持分页、过滤、排序
     
+    支持两种方式指定配置：
+    1. config_id: 配置 ID（精确匹配）
+    2. config_name: 配置名称（支持模糊匹配）
+    
+    参数优先级：config_id > config_name
+    
+    AI 调用建议：优先使用 config_name 参数，传入用户提到的配置名称即可。
+    
     请求体:
-    - config_id: 配置ID (必填)
+    - config_id: 配置ID (可选，优先级高于 config_name)
+    - config_name: 配置名称 (可选，支持模糊匹配，AI 推荐使用)
     - page: 页码 (可选，默认 1)
     - page_size: 每页数量 (可选，默认 20)
     - fields: 要查询的字段 (可选，默认为所有可见字段)
@@ -436,8 +514,13 @@ def execute_query(request, data: TableQueryIn):
     """
     start_time = time.time()
     
-    # 获取配置
-    config = get_object_or_404(TableQueryConfig, id=data.config_id, is_deleted=False)
+    # 获取配置（优先使用 config_id，其次使用 config_name）
+    if data.config_id:
+        config = get_object_or_404(TableQueryConfig, id=data.config_id, is_deleted=False)
+    elif data.config_name:
+        config = _resolve_config_by_name(data.config_name)
+    else:
+        raise HttpError(400, "必须提供 config_id 或 config_name 参数")
     
     if not config.is_active:
         raise HttpError(400, "该表查询配置已禁用")
@@ -517,8 +600,17 @@ def export_data(request, data: ExportParams):
     """
     导出表数据 (Excel/CSV)
     
+    支持两种方式指定配置：
+    1. config_id: 配置 ID（精确匹配）
+    2. config_name: 配置名称（支持模糊匹配）
+    
+    参数优先级：config_id > config_name
+    
+    AI 调用建议：优先使用 config_name 参数，传入用户提到的配置名称即可。
+    
     请求体:
-    - config_id: 配置ID (必填)
+    - config_id: 配置ID (可选，优先级高于 config_name)
+    - config_name: 配置名称 (可选，支持模糊匹配，AI 推荐使用)
     - format: 导出格式 excel/csv (可选，默认 excel)
     - fields: 要导出的字段 (可选，默认为所有可见字段)
     - filters: 过滤条件 (可选)
@@ -529,8 +621,13 @@ def export_data(request, data: ExportParams):
     """
     start_time = time.time()
     
-    # 获取配置
-    config = get_object_or_404(TableQueryConfig, id=data.config_id, is_deleted=False)
+    # 获取配置（优先使用 config_id，其次使用 config_name）
+    if data.config_id:
+        config = get_object_or_404(TableQueryConfig, id=data.config_id, is_deleted=False)
+    elif data.config_name:
+        config = _resolve_config_by_name(data.config_name)
+    else:
+        raise HttpError(400, "必须提供 config_id 或 config_name 参数")
     
     if not config.is_active:
         raise HttpError(400, "该表查询配置已禁用")

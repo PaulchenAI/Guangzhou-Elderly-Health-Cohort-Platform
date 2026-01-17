@@ -667,3 +667,63 @@ def move_dept(request, dept_id: str, new_parent_id: str = None):
     
     return response_success("移动成功")
 
+
+@router.get("/dept/by-name/{name}", response=DeptSchemaOut, summary="按名称查询部门")
+def get_dept_by_name(request, name: str):
+    """
+    按部门名称查询部门（支持模糊匹配）
+    
+    路径参数:
+    - name: 部门名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的部门
+    2. 如果没有完全匹配，返回名称包含关键字的第一个部门
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的部门名称，无需获取 ID。
+    
+    示例:
+    - /dept/by-name/技术部 → 精确匹配
+    - /dept/by-name/技术 → 模糊匹配到"技术部"
+    """
+    # 优先精确匹配
+    dept = Dept.objects.filter(name=name, is_deleted=False).first()
+    if dept:
+        return dept
+    
+    # 模糊匹配
+    dept = Dept.objects.filter(name__icontains=name, is_deleted=False).first()
+    if dept:
+        return dept
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的部门")
+
+
+@router.get("/dept/by-code/{code}", response=DeptSchemaOut, summary="按编码查询部门")
+def get_dept_by_code(request, code: str):
+    """
+    按部门编码查询部门（支持模糊匹配）
+    
+    路径参数:
+    - code: 部门编码（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回编码完全匹配的部门
+    2. 如果没有完全匹配，返回编码包含关键字的第一个部门
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的部门编码，无需获取 ID。
+    """
+    # 优先精确匹配
+    dept = Dept.objects.filter(code=code, is_deleted=False).first()
+    if dept:
+        return dept
+    
+    # 模糊匹配
+    dept = Dept.objects.filter(code__icontains=code, is_deleted=False).first()
+    if dept:
+        return dept
+    
+    raise HttpError(404, f"未找到编码匹配 '{code}' 的部门")
+

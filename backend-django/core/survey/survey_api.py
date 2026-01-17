@@ -351,6 +351,43 @@ def _get_value_label(value, field_name: str, options_map: dict, field_option: di
     return ''
 
 
+def _resolve_schema_by_name(survey_name: str) -> SurveySchemaConfig:
+    """
+    根据问卷名称解析 Schema 配置（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的配置
+    2. 如果没有完全匹配，返回名称包含关键字的第一个配置
+    3. 如果都没有匹配，抛出 HttpError
+    
+    Args:
+        survey_name: 问卷名称
+    
+    Returns:
+        SurveySchemaConfig: 匹配的问卷配置
+    
+    Raises:
+        HttpError: 未找到匹配的配置
+    """
+    # 优先精确匹配
+    schema = SurveySchemaConfig.objects.filter(
+        survey_name=survey_name, 
+        is_deleted=False
+    ).first()
+    if schema:
+        return schema
+    
+    # 模糊匹配
+    schema = SurveySchemaConfig.objects.filter(
+        survey_name__icontains=survey_name, 
+        is_deleted=False
+    ).first()
+    if schema:
+        return schema
+    
+    raise HttpError(400, f"未找到名称匹配 '{survey_name}' 的问卷配置")
+
+
 # =============================================================================
 # Schema 配置 API
 # =============================================================================
@@ -440,6 +477,49 @@ def get_schema_by_type(request, survey_type: str):
     )
 
 
+@router.get(
+    "/survey/schemas/by-name/{survey_name}", 
+    response=SurveySchemaConfigSchemaOut, 
+    tags=["问卷管理"],
+    summary="按名称查询问卷配置",
+)
+def get_schema_by_name(request, survey_name: str):
+    """
+    按问卷名称查询 Schema 配置（支持模糊匹配）
+    
+    路径参数:
+    - survey_name: 问卷名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的配置
+    2. 如果没有完全匹配，返回名称包含关键字的第一个配置
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的问卷名称，无需获取 ID。
+    
+    示例:
+    - /survey/schemas/by-name/户外活动记录表 → 精确匹配
+    - /survey/schemas/by-name/户外活动 → 模糊匹配到"户外活动记录表"
+    """
+    # 优先精确匹配
+    schema = SurveySchemaConfig.objects.filter(
+        survey_name=survey_name, 
+        is_deleted=False
+    ).first()
+    if schema:
+        return schema
+    
+    # 模糊匹配
+    schema = SurveySchemaConfig.objects.filter(
+        survey_name__icontains=survey_name, 
+        is_deleted=False
+    ).first()
+    if schema:
+        return schema
+    
+    raise HttpError(404, f"未找到名称匹配 '{survey_name}' 的问卷配置")
+
+
 # =============================================================================
 # 问卷数据 API
 # =============================================================================
@@ -493,11 +573,17 @@ def query_records(request, data: SurveyQueryIn):
     """
     动态查询问卷数据（根据 Schema 配置）
     
-    **前置条件**: 需要先调用 /survey/schemas 获取 schema_id
-    **典型流程**: 获取配置列表 → 选择问卷类型 → 调用本接口查询数据
+    支持两种方式指定问卷类型：
+    1. schema_id: 问卷配置 ID（精确匹配）
+    2. survey_name: 问卷名称（支持模糊匹配，如"户外活动"可匹配"户外活动记录表"）
+    
+    参数优先级：schema_id > survey_name
+    
+    AI 调用建议：优先使用 survey_name 参数，传入用户提到的问卷名称即可。
     
     请求体:
-    - schema_id: Schema 配置 ID（必填，来自 /survey/schemas）
+    - schema_id: Schema 配置 ID（可选，优先级高于 survey_name）
+    - survey_name: 问卷名称（可选，支持模糊匹配，AI 推荐使用）
     - page: 页码（默认 1）
     - page_size: 每页数量（默认 10）
     - filters: 过滤条件数组，格式 [{"field": "字段名", "operator": "eq/like/gt/gte/lt/lte", "value": "值"}]
@@ -509,17 +595,23 @@ def query_records(request, data: SurveyQueryIn):
     - page/page_size: 分页信息
     
     **使用示例**:
-    查询性格特征问卷: {"schema_id": "xxx", "page": 1, "page_size": 10}
-    带条件查询: {"schema_id": "xxx", "filters": [{"field": "patient_name", "operator": "like", "value": "张"}]}
+    使用名称查询: {"survey_name": "户外活动记录表", "page": 1, "page_size": 10}
+    使用ID查询: {"schema_id": "xxx", "page": 1, "page_size": 10}
+    带条件查询: {"survey_name": "户外活动", "filters": [{"field": "patient_name", "operator": "like", "value": "张"}]}
     """
     start_time = time.time()
     
-    # 获取 Schema 配置
-    schema = get_object_or_404(
-        SurveySchemaConfig, 
-        id=data.schema_id, 
-        is_deleted=False
-    )
+    # 获取 Schema 配置（优先使用 schema_id，其次使用 survey_name）
+    if data.schema_id:
+        schema = get_object_or_404(
+            SurveySchemaConfig, 
+            id=data.schema_id, 
+            is_deleted=False
+        )
+    elif data.survey_name:
+        schema = _resolve_schema_by_name(data.survey_name)
+    else:
+        raise HttpError(400, "必须提供 schema_id 或 survey_name 参数")
     
     if not schema.is_active:
         raise HttpError(400, "该问卷配置已禁用")
@@ -732,19 +824,33 @@ def export_records(request, data: SurveyExportIn):
     """
     导出问卷数据（Excel/CSV）
     
+    支持两种方式指定问卷类型：
+    1. schema_id: 问卷配置 ID（精确匹配）
+    2. survey_name: 问卷名称（支持模糊匹配）
+    
+    参数优先级：schema_id > survey_name
+    
+    AI 调用建议：优先使用 survey_name 参数，传入用户提到的问卷名称即可。
+    
     请求体:
-    - schema_id: Schema 配置 ID
+    - schema_id: Schema 配置 ID（可选，优先级高于 survey_name）
+    - survey_name: 问卷名称（可选，支持模糊匹配，AI 推荐使用）
     - format: 导出格式（excel/csv）
     - value_mode: 导出模式（label=文案, value=数值）
     - filters: 过滤条件
     - max_rows: 最大导出行数
     """
-    # 获取 Schema 配置
-    schema = get_object_or_404(
-        SurveySchemaConfig, 
-        id=data.schema_id, 
-        is_deleted=False
-    )
+    # 获取 Schema 配置（优先使用 schema_id，其次使用 survey_name）
+    if data.schema_id:
+        schema = get_object_or_404(
+            SurveySchemaConfig, 
+            id=data.schema_id, 
+            is_deleted=False
+        )
+    elif data.survey_name:
+        schema = _resolve_schema_by_name(data.survey_name)
+    else:
+        raise HttpError(400, "必须提供 schema_id 或 survey_name 参数")
     
     if not schema.is_active:
         raise HttpError(400, "该问卷配置已禁用")

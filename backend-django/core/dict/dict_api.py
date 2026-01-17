@@ -149,3 +149,67 @@ def list_all_dict(request):
     
     return query_set
 
+
+@router.get("/dict/by-name/{name}", response=DictSchemaOut, tags=["字典管理"], summary="按名称查询字典")
+def get_dict_by_name(request, name: str):
+    """
+    按字典名称查询字典（支持模糊匹配）
+    
+    路径参数:
+    - name: 字典名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的字典
+    2. 如果没有完全匹配，返回名称包含关键字的第一个字典
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的字典名称，无需获取 ID。
+    
+    示例:
+    - /dict/by-name/用户状态 → 精确匹配
+    - /dict/by-name/状态 → 模糊匹配到"用户状态"
+    """
+    from ninja.errors import HttpError
+    
+    # 优先精确匹配
+    dict_obj = Dict.objects.filter(name=name, is_deleted=False).first()
+    if dict_obj:
+        return dict_obj
+    
+    # 模糊匹配
+    dict_obj = Dict.objects.filter(name__icontains=name, is_deleted=False).first()
+    if dict_obj:
+        return dict_obj
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的字典")
+
+
+@router.get("/dict/by-code/{code}", response=DictSchemaOut, tags=["字典管理"], summary="按编码查询字典")
+def get_dict_by_code(request, code: str):
+    """
+    按字典编码查询字典（支持模糊匹配）
+    
+    路径参数:
+    - code: 字典编码（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回编码完全匹配的字典
+    2. 如果没有完全匹配，返回编码包含关键字的第一个字典
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的字典编码，无需获取 ID。
+    """
+    from ninja.errors import HttpError
+    
+    # 优先精确匹配
+    dict_obj = Dict.objects.filter(code=code, is_deleted=False).first()
+    if dict_obj:
+        return dict_obj
+    
+    # 模糊匹配
+    dict_obj = Dict.objects.filter(code__icontains=code, is_deleted=False).first()
+    if dict_obj:
+        return dict_obj
+    
+    raise HttpError(404, f"未找到编码匹配 '{code}' 的字典")
+

@@ -426,3 +426,63 @@ def get_posts_by_level(request, post_level: int):
     ).order_by('name')
     return posts
 
+
+@router.get("/post/by-name/{name}", response=PostSchemaOut, summary="按名称查询岗位")
+def get_post_by_name(request, name: str):
+    """
+    按岗位名称查询岗位（支持模糊匹配）
+    
+    路径参数:
+    - name: 岗位名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的岗位
+    2. 如果没有完全匹配，返回名称包含关键字的第一个岗位
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的岗位名称，无需获取 ID。
+    
+    示例:
+    - /post/by-name/产品经理 → 精确匹配
+    - /post/by-name/产品 → 模糊匹配到"产品经理"
+    """
+    # 优先精确匹配
+    post = Post.objects.filter(name=name, is_deleted=False).first()
+    if post:
+        return post
+    
+    # 模糊匹配
+    post = Post.objects.filter(name__icontains=name, is_deleted=False).first()
+    if post:
+        return post
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的岗位")
+
+
+@router.get("/post/by-code/{code}", response=PostSchemaOut, summary="按编码查询岗位")
+def get_post_by_code(request, code: str):
+    """
+    按岗位编码查询岗位（支持模糊匹配）
+    
+    路径参数:
+    - code: 岗位编码（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回编码完全匹配的岗位
+    2. 如果没有完全匹配，返回编码包含关键字的第一个岗位
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的岗位编码，无需获取 ID。
+    """
+    # 优先精确匹配
+    post = Post.objects.filter(code=code, is_deleted=False).first()
+    if post:
+        return post
+    
+    # 模糊匹配
+    post = Post.objects.filter(code__icontains=code, is_deleted=False).first()
+    if post:
+        return post
+    
+    raise HttpError(404, f"未找到编码匹配 '{code}' 的岗位")
+

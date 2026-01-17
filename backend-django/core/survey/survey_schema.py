@@ -103,7 +103,14 @@ class SurveyImportLogFilters(FilterSchema):
 
 class SurveyQueryIn(Schema):
     """问卷查询请求"""
-    schema_id: str = Field(..., description="Schema 配置 ID")
+    schema_id: Optional[str] = Field(
+        None, 
+        description="Schema 配置 ID（精确匹配，优先级高于 survey_name）"
+    )
+    survey_name: Optional[str] = Field(
+        None, 
+        description="问卷名称（支持模糊匹配，AI 调用推荐使用此参数）"
+    )
     page: int = Field(1, ge=1, description="页码")
     page_size: int = Field(20, ge=1, le=100, description="每页数量")
     filters: Optional[List[Dict[str, Any]]] = Field(None, description="过滤条件")
@@ -124,7 +131,14 @@ class SurveyQueryResult(Schema):
 
 class SurveyExportIn(Schema):
     """问卷导出请求"""
-    schema_id: str = Field(..., description="Schema 配置 ID")
+    schema_id: Optional[str] = Field(
+        None, 
+        description="Schema 配置 ID（精确匹配，优先级高于 survey_name）"
+    )
+    survey_name: Optional[str] = Field(
+        None, 
+        description="问卷名称（支持模糊匹配，AI 调用推荐使用此参数）"
+    )
     format: str = Field("excel", description="导出格式: excel/csv")
     value_mode: str = Field("label", description="导出模式: label=文案, value=数值")
     filters: Optional[List[Dict[str, Any]]] = Field(None, description="过滤条件")

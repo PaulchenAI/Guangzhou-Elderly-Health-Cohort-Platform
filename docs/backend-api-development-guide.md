@@ -218,6 +218,20 @@ api.add_router('/core', core_router)
 
 # 搜索
 @router.get("/user/search")             # 搜索用户
+
+# AI 友好的按名称/编码查询（支持模糊匹配）
+@router.get("/user/by-name/{name}")       # 按姓名查询用户
+@router.get("/user/by-username/{username}")  # 按登录名查询用户
+@router.get("/role/by-name/{name}")       # 按角色名称查询
+@router.get("/role/by-code/{code}")       # 按角色编码查询
+@router.get("/dept/by-name/{name}")       # 按部门名称查询
+@router.get("/dept/by-code/{code}")       # 按部门编码查询
+@router.get("/post/by-name/{name}")       # 按岗位名称查询
+@router.get("/post/by-code/{code}")       # 按岗位编码查询
+@router.get("/dict/by-name/{name}")       # 按字典名称查询
+@router.get("/dict/by-code/{code}")       # 按字典编码查询
+@router.get("/survey/schemas/by-name/{name}")  # 按问卷名称查询配置
+@router.get("/table-query/configs/by-name/{name}")  # 按表查询配置名称查询
 ```
 
 ### 4.5 OpenAPI 描述规范
@@ -300,6 +314,138 @@ description="""
 # 避免 - 缺乏业务语义
 description="获取问卷数据列表"
 ```
+
+#### 4.5.4 支持名称参数的 API description 编写规范
+
+当 API 同时支持 ID 和名称参数时，description 应明确说明：
+
+```python
+@router.post("/survey/query", response=SurveyQueryResult, summary="查询问卷数据")
+def query_records(request, data: SurveyQueryIn):
+    """
+    动态查询问卷数据（根据 Schema 配置）
+    
+    支持两种方式指定问卷类型：
+    1. schema_id: 问卷配置 ID（精确匹配）
+    2. survey_name: 问卷名称（支持模糊匹配，如"户外活动"可匹配"户外活动记录表"）
+    
+    参数优先级：schema_id > survey_name
+    
+    AI 调用建议：优先使用 survey_name 参数，传入用户提到的问卷名称即可。
+    
+    请求体:
+    - schema_id: Schema 配置 ID（可选，优先级高于 survey_name）
+    - survey_name: 问卷名称（可选，支持模糊匹配，AI 推荐使用）
+    - page: 页码（默认 1）
+    ...
+    """
+```
+
+### 4.6 AI 友好的按名称查询 API 设计模式
+
+为了使 AI/LLM 能够通过自然语言提取的名称直接调用 API，系统提供按名称查询的 API 端点。
+
+#### 4.6.1 设计原则
+
+1. **路径格式**：使用 `/resource/by-name/{name}` 或 `/resource/by-code/{code}` 形式
+2. **模糊匹配**：支持精确匹配和模糊匹配（使用 `__icontains`）
+3. **匹配优先级**：优先返回精确匹配的结果，其次返回模糊匹配的第一个结果
+4. **错误处理**：无匹配时返回 404 错误，包含清晰的错误信息
+
+#### 4.6.2 实现模板
+
+```python
+@router.get("/resource/by-name/{name}", response=ResourceSchemaOut, summary="按名称查询资源")
+def get_resource_by_name(request, name: str):
+    """
+    按资源名称查询资源（支持模糊匹配）
+    
+    路径参数:
+    - name: 资源名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的资源
+    2. 如果没有完全匹配，返回名称包含关键字的第一个资源
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的资源名称，无需获取 ID。
+    
+    示例:
+    - /resource/by-name/系统管理员 → 精确匹配
+    - /resource/by-name/管理员 → 模糊匹配到"系统管理员"
+    """
+    # 优先精确匹配
+    resource = Resource.objects.filter(name=name, is_deleted=False).first()
+    if resource:
+        return resource
+    
+    # 模糊匹配
+    resource = Resource.objects.filter(name__icontains=name, is_deleted=False).first()
+    if resource:
+        return resource
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的资源")
+```
+
+#### 4.6.3 请求体中支持名称参数
+
+对于 POST 请求，当原接口需要 ID 参数时，可添加名称参数作为替代：
+
+```python
+class QueryIn(Schema):
+    """查询请求"""
+    config_id: Optional[str] = Field(
+        None, 
+        description="配置 ID（精确匹配，优先级高于 config_name）"
+    )
+    config_name: Optional[str] = Field(
+        None, 
+        description="配置名称（支持模糊匹配，AI 调用推荐使用此参数）"
+    )
+    # ... 其他字段
+
+def _resolve_config_by_name(config_name: str) -> Config:
+    """根据名称解析配置"""
+    # 优先精确匹配
+    config = Config.objects.filter(name=config_name, is_deleted=False).first()
+    if config:
+        return config
+    
+    # 模糊匹配
+    config = Config.objects.filter(name__icontains=config_name, is_deleted=False).first()
+    if config:
+        return config
+    
+    raise HttpError(400, f"未找到名称匹配 '{config_name}' 的配置")
+
+@router.post("/query", response=QueryResult)
+def execute_query(request, data: QueryIn):
+    # 获取配置（优先使用 config_id，其次使用 config_name）
+    if data.config_id:
+        config = get_object_or_404(Config, id=data.config_id, is_deleted=False)
+    elif data.config_name:
+        config = _resolve_config_by_name(data.config_name)
+    else:
+        raise HttpError(400, "必须提供 config_id 或 config_name 参数")
+    # ... 继续处理
+```
+
+#### 4.6.4 已实现的按名称查询 API
+
+| 模块 | 端点 | 说明 |
+|------|------|------|
+| 用户 | `/user/by-name/{name}` | 按姓名查询用户 |
+| 用户 | `/user/by-username/{username}` | 按登录名查询用户 |
+| 角色 | `/role/by-name/{name}` | 按角色名称查询 |
+| 角色 | `/role/by-code/{code}` | 按角色编码查询 |
+| 部门 | `/dept/by-name/{name}` | 按部门名称查询 |
+| 部门 | `/dept/by-code/{code}` | 按部门编码查询 |
+| 岗位 | `/post/by-name/{name}` | 按岗位名称查询 |
+| 岗位 | `/post/by-code/{code}` | 按岗位编码查询 |
+| 字典 | `/dict/by-name/{name}` | 按字典名称查询 |
+| 字典 | `/dict/by-code/{code}` | 按字典编码查询 |
+| 问卷 | `/survey/schemas/by-name/{name}` | 按问卷名称查询配置 |
+| 表查询 | `/table-query/configs/by-name/{name}` | 按配置名称查询 |
 
 ---
 

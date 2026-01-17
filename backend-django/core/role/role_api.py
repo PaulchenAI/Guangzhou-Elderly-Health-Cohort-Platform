@@ -747,3 +747,63 @@ def copy_role(request, role_id: str, new_name: str, new_code: str):
     
     return new_role
 
+
+@router.get("/role/by-name/{name}", response=RoleSchemaOut, summary="按名称查询角色")
+def get_role_by_name(request, name: str):
+    """
+    按角色名称查询角色（支持模糊匹配）
+    
+    路径参数:
+    - name: 角色名称（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回名称完全匹配的角色
+    2. 如果没有完全匹配，返回名称包含关键字的第一个角色
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的角色名称，无需获取 ID。
+    
+    示例:
+    - /role/by-name/系统管理员 → 精确匹配
+    - /role/by-name/管理员 → 模糊匹配到"系统管理员"
+    """
+    # 优先精确匹配
+    role = Role.objects.filter(name=name, is_deleted=False).first()
+    if role:
+        return role
+    
+    # 模糊匹配
+    role = Role.objects.filter(name__icontains=name, is_deleted=False).first()
+    if role:
+        return role
+    
+    raise HttpError(404, f"未找到名称匹配 '{name}' 的角色")
+
+
+@router.get("/role/by-code/{code}", response=RoleSchemaOut, summary="按编码查询角色")
+def get_role_by_code(request, code: str):
+    """
+    按角色编码查询角色（支持模糊匹配）
+    
+    路径参数:
+    - code: 角色编码（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回编码完全匹配的角色
+    2. 如果没有完全匹配，返回编码包含关键字的第一个角色
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的角色编码，无需获取 ID。
+    """
+    # 优先精确匹配
+    role = Role.objects.filter(code=code, is_deleted=False).first()
+    if role:
+        return role
+    
+    # 模糊匹配
+    role = Role.objects.filter(code__icontains=code, is_deleted=False).first()
+    if role:
+        return role
+    
+    raise HttpError(404, f"未找到编码匹配 '{code}' 的角色")
+

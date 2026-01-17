@@ -539,6 +539,66 @@ def get_users_by_role(request, role_id: str):
     return users
 
 
+@router.get("/user/by-name/{name}", response=UserSchemaOut, summary="按姓名查询用户")
+def get_user_by_name(request, name: str):
+    """
+    按姓名查询用户（支持模糊匹配）
+    
+    路径参数:
+    - name: 用户姓名（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回姓名完全匹配的用户
+    2. 如果没有完全匹配，返回姓名包含关键字的第一个用户
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的姓名，无需获取 ID。
+    
+    示例:
+    - /user/by-name/张三 → 精确匹配
+    - /user/by-name/张 → 模糊匹配到"张三"
+    """
+    # 优先精确匹配
+    user = User.objects.filter(name=name, is_deleted=False).first()
+    if user:
+        return user
+    
+    # 模糊匹配
+    user = User.objects.filter(name__icontains=name, is_deleted=False).first()
+    if user:
+        return user
+    
+    raise HttpError(404, f"未找到姓名匹配 '{name}' 的用户")
+
+
+@router.get("/user/by-username/{username}", response=UserSchemaOut, summary="按登录名查询用户")
+def get_user_by_username(request, username: str):
+    """
+    按登录名查询用户（支持模糊匹配）
+    
+    路径参数:
+    - username: 登录名（支持模糊匹配）
+    
+    查询逻辑:
+    1. 优先返回登录名完全匹配的用户
+    2. 如果没有完全匹配，返回登录名包含关键字的第一个用户
+    3. 如果都没有匹配，返回 404 错误
+    
+    AI 调用建议: 直接传入用户提到的登录名，无需获取 ID。
+    """
+    # 优先精确匹配
+    user = User.objects.filter(username=username, is_deleted=False).first()
+    if user:
+        return user
+    
+    # 模糊匹配
+    user = User.objects.filter(username__icontains=username, is_deleted=False).first()
+    if user:
+        return user
+    
+    raise HttpError(404, f"未找到登录名匹配 '{username}' 的用户")
+
+
 @router.post("/user/export", summary="导出用户数据")
 def export_user(request):
     """

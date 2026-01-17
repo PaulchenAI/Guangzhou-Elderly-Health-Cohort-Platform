@@ -96,7 +96,14 @@ class FilterCondition(Schema):
 
 class TableQueryIn(Schema):
     """执行表查询输入"""
-    config_id: str = Field(..., description="配置ID")
+    config_id: Optional[str] = Field(
+        None, 
+        description="配置ID（精确匹配，优先级高于 config_name）"
+    )
+    config_name: Optional[str] = Field(
+        None, 
+        description="配置名称（支持模糊匹配，AI 调用推荐使用此参数）"
+    )
     page: int = Field(1, ge=1, description="页码")
     page_size: int = Field(20, ge=1, le=1000, description="每页数量")
     fields: Optional[List[str]] = Field(None, description="要查询的字段列表")
@@ -118,7 +125,14 @@ class TableQueryResult(Schema):
 
 class ExportParams(Schema):
     """导出参数"""
-    config_id: str = Field(..., description="配置ID")
+    config_id: Optional[str] = Field(
+        None, 
+        description="配置ID（精确匹配，优先级高于 config_name）"
+    )
+    config_name: Optional[str] = Field(
+        None, 
+        description="配置名称（支持模糊匹配，AI 调用推荐使用此参数）"
+    )
     format: str = Field("excel", description="导出格式: excel/csv")
     fields: Optional[List[str]] = Field(None, description="要导出的字段列表")
     filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
