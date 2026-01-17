@@ -351,6 +351,38 @@ python -m AIagent.src.sql_import.sql_meaning_cli infer-dir ./sql --retry-failed
 python -m AIagent.src.sql_import.sql_meaning_cli clear-errors
 ```
 
+#### 基于 Excel 元数据重新推断
+
+如果有 Excel 文件包含表单的业务元数据（如表单分类、中文名称），可以利用这些上下文信息重新推断，提高准确性：
+
+```bash
+# 预览模式（查看将处理哪些表）
+python -m AIagent.src.sql_import.sql_meaning_cli reinfer-from-excel \
+  docs/hospital/docs/NHMS_WORKFLOW_BILL.xlsx \
+  --dry-run
+
+# 实际执行（并发处理）
+python -m AIagent.src.sql_import.sql_meaning_cli reinfer-from-excel \
+  docs/hospital/docs/NHMS_WORKFLOW_BILL.xlsx \
+  -c 3
+
+# 跳过已重新推断过的表
+python -m AIagent.src.sql_import.sql_meaning_cli reinfer-from-excel \
+  docs/hospital/docs/NHMS_WORKFLOW_BILL.xlsx \
+  --skip-existing -c 3
+```
+
+**Excel 文件格式要求**：
+- `TABLENAME`：表名
+- `FORMDES`：表单分类描述（如 "院前评估"、"服务评估表"）
+- `NAMELABEL`：表单中文名称（如 "社会参与评估表"、"跌倒/坠床风险评估"）
+
+**工作原理**：
+1. 读取 Excel 中的表单元数据
+2. 在 `commentsql` 目录中查找对应的 JSON 文件
+3. 如果 JSON 存在，读取原始 SQL 文件并结合 Excel 元数据重新推断
+4. 如果 JSON 不存在，跳过该表
+
 #### 错误日志
 
 批量处理时，失败的任务会记录到 `error_log.json` 文件中：

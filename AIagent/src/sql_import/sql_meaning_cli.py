@@ -49,6 +49,26 @@ async def clear_errors(args):
         print("没有错误日志需要清除")
 
 
+async def reinfer_from_excel(args):
+    """基于 Excel 元数据重新推断表含义"""
+    inferencer = SQLMeaningInferencer(
+        ignore_prefix=args.ignore_prefix,
+        skip_existing=args.skip_existing,
+        concurrency=args.concurrency
+    )
+    
+    result = await inferencer.reinfer_from_excel(
+        excel_file=args.excel_file,
+        output_dir=args.output,
+        sql_dir=args.sql_dir,
+        dry_run=args.dry_run
+    )
+    
+    if not args.dry_run:
+        print(f"\n处理完成: 成功 {result.get('success', 0)} 个, "
+              f"失败 {result.get('failed', 0)} 个")
+
+
 def _load_template(template_file: str) -> str:
     """加载自定义模板"""
     path = Path(template_file)
@@ -112,6 +132,42 @@ def main():
     parser_clear = subparsers.add_parser('clear-errors', help='清除错误日志')
     parser_clear.add_argument('-o', '--output', help='输出目录（默认: docs/hospital/commentsql）')
     
+    # 基于 Excel 重新推断
+    parser_excel = subparsers.add_parser(
+        'reinfer-from-excel', 
+        help='基于 Excel 元数据重新推断表含义（读取 TABLENAME、FORMDES、NAMELABEL 列）'
+    )
+    parser_excel.add_argument('excel_file', help='Excel 文件路径（包含 TABLENAME、FORMDES、NAMELABEL 列）')
+    parser_excel.add_argument(
+        '-o', '--output', 
+        help='输出目录，也是查找现有 JSON 的目录（默认: docs/hospital/commentsql）'
+    )
+    parser_excel.add_argument(
+        '--sql-dir',
+        help='SQL 文件目录（默认: docs/hospital/convertsql/create）'
+    )
+    parser_excel.add_argument(
+        '--ignore-prefix',
+        default='gzlry_',
+        help='要忽略的表名前缀（默认: gzlry_）'
+    )
+    parser_excel.add_argument(
+        '-c', '--concurrency',
+        type=int,
+        default=1,
+        help='并发处理数量（默认: 1，即顺序处理）'
+    )
+    parser_excel.add_argument(
+        '--skip-existing',
+        action='store_true',
+        help='跳过已重新推断过的表（检查 metadata.form_context）'
+    )
+    parser_excel.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='预览模式，只显示将要处理的表，不实际执行'
+    )
+    
     args = parser.parse_args()
     
     if args.command == 'infer-file':
@@ -120,6 +176,8 @@ def main():
         asyncio.run(infer_dir(args))
     elif args.command == 'clear-errors':
         asyncio.run(clear_errors(args))
+    elif args.command == 'reinfer-from-excel':
+        asyncio.run(reinfer_from_excel(args))
     else:
         parser.print_help()
 
