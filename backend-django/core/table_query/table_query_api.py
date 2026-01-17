@@ -328,7 +328,7 @@ def get_total_count(table_name: str, where_clauses: List[str], params: List[Any]
 # 配置管理 API
 # =============================================================================
 
-@router.post("/table-query/configs", response=TableQueryConfigSchemaOut, tags=["表查询管理"])
+@router.post("/table-query/configs", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="创建表查询配置")
 def create_config(request, data: TableQueryConfigSchemaIn):
     """
     创建表查询配置
@@ -345,7 +345,7 @@ def create_config(request, data: TableQueryConfigSchemaIn):
     return instance
 
 
-@router.get("/table-query/configs", response=List[TableQueryConfigSchemaOut], tags=["表查询管理"])
+@router.get("/table-query/configs", response=List[TableQueryConfigSchemaOut], tags=["表查询管理"], summary="获取表查询配置列表（分页）")
 @paginate(MyPagination)
 def list_configs(request, filters: TableQueryConfigFilters = Query(...)):
     """
@@ -361,7 +361,7 @@ def list_configs(request, filters: TableQueryConfigFilters = Query(...)):
     return retrieve(request, TableQueryConfig, filters)
 
 
-@router.get("/table-query/configs/all", response=List[TableQueryConfigSchemaOut], tags=["表查询管理"])
+@router.get("/table-query/configs/all", response=List[TableQueryConfigSchemaOut], tags=["表查询管理"], summary="获取所有表查询配置")
 def list_all_configs(request, is_active: Optional[bool] = True):
     """
     获取所有表查询配置 (不分页)
@@ -375,7 +375,7 @@ def list_all_configs(request, is_active: Optional[bool] = True):
     return list(queryset)
 
 
-@router.get("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"])
+@router.get("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="获取表查询配置详情")
 def get_config(request, config_id: str):
     """
     获取表查询配置详情
@@ -386,7 +386,7 @@ def get_config(request, config_id: str):
     return get_object_or_404(TableQueryConfig, id=config_id, is_deleted=False)
 
 
-@router.put("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"])
+@router.put("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="更新表查询配置")
 def update_config(request, config_id: str, data: TableQueryConfigSchemaPatch):
     """
     更新表查询配置
@@ -399,7 +399,7 @@ def update_config(request, config_id: str, data: TableQueryConfigSchemaPatch):
     return instance
 
 
-@router.delete("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"])
+@router.delete("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="删除表查询配置")
 def delete_config(request, config_id: str):
     """
     删除表查询配置 (软删除)
@@ -416,7 +416,7 @@ def delete_config(request, config_id: str):
 # 动态查询 API
 # =============================================================================
 
-@router.post("/table-query/query", response=TableQueryResult, tags=["表查询管理"])
+@router.post("/table-query/query", response=TableQueryResult, tags=["表查询管理"], summary="执行动态表查询")
 def execute_query(request, data: TableQueryIn):
     """
     执行动态表查询，支持分页、过滤、排序
@@ -512,7 +512,7 @@ def execute_query(request, data: TableQueryIn):
 # 数据导出 API
 # =============================================================================
 
-@router.post("/table-query/export", tags=["表查询管理"])
+@router.post("/table-query/export", tags=["表查询管理"], summary="导出表数据")
 def export_data(request, data: ExportParams):
     """
     导出表数据 (Excel/CSV)
@@ -655,7 +655,7 @@ def _export_excel(filename: str, headers: List[str], rows: List[tuple]) -> HttpR
 # 查询日志 API
 # =============================================================================
 
-@router.get("/table-query/logs", response=List[TableQueryLogSchemaOut], tags=["表查询管理"])
+@router.get("/table-query/logs", response=List[TableQueryLogSchemaOut], tags=["表查询管理"], summary="获取查询日志列表（分页）")
 @paginate(MyPagination)
 def list_logs(request, filters: TableQueryLogFilters = Query(...)):
     """

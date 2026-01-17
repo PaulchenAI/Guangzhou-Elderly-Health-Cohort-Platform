@@ -20,7 +20,7 @@ router = Router()
 server_collector = ServerInfoCollector()
 
 
-@router.get("/server_monitor/overview", response=ServerMonitorResponseSchema, auth=None)
+@router.get("/server_monitor/overview", response=ServerMonitorResponseSchema, auth=None, summary="获取服务器监控概览")
 def get_server_overview(request):
     """获取服务器完整监控信息"""
     try:
@@ -123,7 +123,7 @@ def get_server_overview(request):
         }
 
 
-@router.get("/server_monitor/realtime", response=RealtimeStatsSchema, auth=None)
+@router.get("/server_monitor/realtime", response=RealtimeStatsSchema, auth=None, summary="获取服务器实时统计")
 def get_realtime_stats(request):
     """获取实时统计信息"""
     try:
@@ -139,7 +139,7 @@ def get_realtime_stats(request):
         }
 
 
-@router.get("/server_monitor/basic_info", auth=None)
+@router.get("/server_monitor/basic_info", auth=None, summary="获取基础系统信息")
 def get_basic_info(request):
     """获取基础系统信息"""
     try:
@@ -148,7 +148,7 @@ def get_basic_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/cpu_info", auth=None)
+@router.get("/server_monitor/cpu_info", auth=None, summary="获取CPU信息")
 def get_cpu_info(request):
     """获取CPU信息"""
     try:
@@ -157,7 +157,7 @@ def get_cpu_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/memory_info", auth=None)
+@router.get("/server_monitor/memory_info", auth=None, summary="获取内存信息")
 def get_memory_info(request):
     """获取内存信息"""
     try:
@@ -166,7 +166,7 @@ def get_memory_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/disk_info", auth=None)
+@router.get("/server_monitor/disk_info", auth=None, summary="获取磁盘信息")
 def get_disk_info(request):
     """获取磁盘信息"""
     try:
@@ -175,7 +175,7 @@ def get_disk_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/network_info", auth=None)
+@router.get("/server_monitor/network_info", auth=None, summary="获取网络信息")
 def get_network_info(request):
     """获取网络信息"""
     try:
@@ -184,7 +184,7 @@ def get_network_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/process_info", auth=None)
+@router.get("/server_monitor/process_info", auth=None, summary="获取进程信息")
 def get_process_info(request):
     """获取进程信息"""
     try:
@@ -193,7 +193,7 @@ def get_process_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/system_load", auth=None)
+@router.get("/server_monitor/system_load", auth=None, summary="获取系统负载信息")
 def get_system_load(request):
     """获取系统负载信息"""
     try:
@@ -202,7 +202,7 @@ def get_system_load(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/boot_time", auth=None)
+@router.get("/server_monitor/boot_time", auth=None, summary="获取系统启动时间")
 def get_boot_time(request):
     """获取系统启动时间信息"""
     try:
@@ -211,7 +211,7 @@ def get_boot_time(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/users_info", auth=None)
+@router.get("/server_monitor/users_info", auth=None, summary="获取登录用户信息")
 def get_users_info(request):
     """获取用户信息"""
     try:
@@ -220,7 +220,7 @@ def get_users_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/temperature_info", auth=None)
+@router.get("/server_monitor/temperature_info", auth=None, summary="获取温度信息")
 def get_temperature_info(request):
     """获取温度信息"""
     try:
@@ -229,7 +229,7 @@ def get_temperature_info(request):
         return {"error": str(e)}
 
 
-@router.get("/server_monitor/battery_info", response=BatteryInfoSchema, auth=None)
+@router.get("/server_monitor/battery_info", response=BatteryInfoSchema, auth=None, summary="获取电池信息")
 def get_battery_info(request):
     """获取电池信息"""
     try:

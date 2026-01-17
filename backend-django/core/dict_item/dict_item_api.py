@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.post("/dict_item", response=DictItemSchemaOut, tags=["字典项管理"])
+@router.post("/dict_item", response=DictItemSchemaOut, tags=["字典项管理"], summary="创建字典项")
 def create_dict_item(request, data: DictItemSchemaIn):
     """
     创建字典项
@@ -58,7 +58,7 @@ def create_dict_item(request, data: DictItemSchemaIn):
     return query_set
 
 
-@router.delete("/dict_item/{dict_item_id}", response=DictItemSchemaOut, tags=["字典项管理"])
+@router.delete("/dict_item/{dict_item_id}", response=DictItemSchemaOut, tags=["字典项管理"], summary="删除字典项")
 def delete_dict_item(request, dict_item_id: str):
     """
     删除字典项
@@ -92,7 +92,7 @@ def delete_dict_item(request, dict_item_id: str):
     return instance
 
 
-@router.put("/dict_item/{dict_item_id}", response=DictItemSchemaOut, tags=["字典项管理"])
+@router.put("/dict_item/{dict_item_id}", response=DictItemSchemaOut, tags=["字典项管理"], summary="更新字典项")
 def update_dict_item(request, dict_item_id: str, data: DictItemSchemaIn):
     """
     更新字典项
@@ -134,7 +134,7 @@ def update_dict_item(request, dict_item_id: str, data: DictItemSchemaIn):
     return instance
 
 
-@router.get("/dict_item", response=List[DictItemSchemaOut], tags=["字典项管理"])
+@router.get("/dict_item", response=List[DictItemSchemaOut], tags=["字典项管理"], summary="获取字典项列表（分页）")
 @paginate(MyPagination)
 def list_dict_item(request, filters: DictItemFilters = Query(...)):
     """
@@ -152,7 +152,7 @@ def list_dict_item(request, filters: DictItemFilters = Query(...)):
     return query_set
 
 
-@router.get("/dict_item/get/all", response=List[DictItemSchemaOut], tags=["字典项管理"])
+@router.get("/dict_item/get/all", response=List[DictItemSchemaOut], tags=["字典项管理"], summary="获取所有字典项")
 def list_all_dict_item(request):
     """
     获取所有字典项 (不分页，有缓存)
@@ -177,7 +177,7 @@ def list_all_dict_item(request):
     return query_set
 
 
-@router.get("/dict_item/by/dict_code/{code}", response=List[DictItemSchemaOut], tags=["字典项管理"])
+@router.get("/dict_item/by/dict_code/{code}", response=List[DictItemSchemaOut], tags=["字典项管理"], summary="按字典编码获取字典项")
 def list_dict_item_by_dict_code(request, code: str):
     """
     按字典编码获取字典项 (有缓存)

@@ -220,6 +220,87 @@ api.add_router('/core', core_router)
 @router.get("/user/search")             # 搜索用户
 ```
 
+### 4.5 OpenAPI 描述规范
+
+所有 API 端点必须提供中文 summary 和规范化的 description，以支持 AI 意图理解和文档生成。
+
+#### 4.5.1 Summary 命名规范
+
+**格式**：`动词 + 名词（补充说明）`
+
+```python
+# 正确示例
+@router.get("/user", response=List[UserSchemaOut], summary="获取用户列表（分页）")
+@router.post("/user", response=UserSchemaOut, summary="创建用户")
+@router.get("/user/{user_id}", response=UserSchemaDetail, summary="获取用户详情")
+@router.put("/user/{user_id}", response=UserSchemaOut, summary="更新用户")
+@router.delete("/user/{user_id}", response=UserSchemaOut, summary="删除用户")
+
+# 错误示例
+@router.get("/user")  # 缺少 summary，Django Ninja 自动生成英文
+@router.get("/user", summary="List User")  # 英文 summary
+```
+
+**动词标准化映射表**：
+
+| HTTP 方法 | 操作类型 | 标准动词 | 示例 |
+|-----------|---------|---------|------|
+| POST | 创建 | 创建 | 创建用户 |
+| GET | 读取单个 | 获取 | 获取用户详情 |
+| GET | 读取列表 | 获取 | 获取用户列表（分页） |
+| GET | 读取全部 | 获取所有 | 获取所有用户 |
+| PUT | 完全更新 | 更新 | 更新用户 |
+| PATCH | 部分更新 | 部分更新 | 部分更新用户 |
+| DELETE | 删除 | 删除 | 删除用户 |
+| DELETE | 批量删除 | 批量删除 | 批量删除用户 |
+| POST | 搜索 | 搜索 | 搜索用户 |
+| POST | 导出 | 导出 | 导出用户数据 |
+| POST | 导入 | 导入 | 导入用户数据 |
+| POST | 同步 | 触发同步 | 触发数据同步 |
+
+#### 4.5.2 Description 规范
+
+使用函数 docstring 作为 description，Django Ninja 会自动将其作为 OpenAPI 的 description：
+
+```python
+@router.get("/user", response=List[UserSchemaOut], summary="获取用户列表（分页）")
+@paginate(MyPagination)
+def list_user(request, filters: UserFilters = Query(...)):
+    """
+    获取用户列表（分页）
+    
+    查询参数:
+    - page: 页码（默认 1）
+    - pageSize: 每页数量（默认 10）
+    - name: 用户名（模糊查询）
+    - user_status: 用户状态（0-禁用，1-正常，2-锁定）
+    
+    返回:
+    - items: 用户列表
+    - total: 总数
+    """
+    query_set = retrieve(request, User, filters)
+    return query_set
+```
+
+#### 4.5.3 AI 友好的描述
+
+为了支持 AI 意图理解，description 应包含：
+- 业务语义描述（使用自然语言）
+- 常用同义词（如 "数据"、"记录" 等）
+
+```python
+# 良好示例 - 包含业务语义
+description="""
+获取问卷数据列表（分页）
+
+用于查询已填写的问卷记录，支持按问卷类型、患者姓名、日期范围筛选。
+"""
+
+# 避免 - 缺乏业务语义
+description="获取问卷数据列表"
+```
+
 ---
 
 ## 5. 模型开发

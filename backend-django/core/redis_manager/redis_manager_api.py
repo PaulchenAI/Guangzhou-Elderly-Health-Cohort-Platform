@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.get("/redis_manager/databases", response=RedisDatabaseListResponse)
+@router.get("/redis_manager/databases", response=RedisDatabaseListResponse, summary="获取Redis数据库列表")
 def get_redis_databases(request):
     """获取所有Redis数据库信息"""
     try:
@@ -46,7 +46,7 @@ def get_redis_databases(request):
         raise
 
 
-@router.post("/redis_manager/{db_index}/keys/search", response=RedisKeyListResponse)
+@router.post("/redis_manager/{db_index}/keys/search", response=RedisKeyListResponse, summary="搜索Redis键")
 def search_redis_keys(request, db_index: int, search: RedisKeySearchSchema):
     """搜索Redis键"""
     try:
@@ -70,7 +70,7 @@ def search_redis_keys(request, db_index: int, search: RedisKeySearchSchema):
         raise
 
 
-@router.get("/redis_manager/{db_index}/keys/{key}", response=RedisKeyDetailSchema)
+@router.get("/redis_manager/{db_index}/keys/{key}", response=RedisKeyDetailSchema, summary="获取Redis键详情")
 def get_redis_key_detail(request, db_index: int, key: str):
     """获取Redis键详情"""
     try:
@@ -84,7 +84,7 @@ def get_redis_key_detail(request, db_index: int, key: str):
         raise
 
 
-@router.post("/redis_manager/{db_index}/keys", response=RedisOperationResponse)
+@router.post("/redis_manager/{db_index}/keys", response=RedisOperationResponse, summary="创建Redis键")
 def create_redis_key(request, db_index: int, data: RedisKeyCreateSchema):
     """创建Redis键"""
     try:
@@ -111,7 +111,7 @@ def create_redis_key(request, db_index: int, data: RedisKeyCreateSchema):
         raise
 
 
-@router.put("/redis_manager/{db_index}/keys/{key}", response=RedisOperationResponse)
+@router.put("/redis_manager/{db_index}/keys/{key}", response=RedisOperationResponse, summary="更新Redis键")
 def update_redis_key(request, db_index: int, key: str, data: RedisKeyUpdateSchema):
     """更新Redis键"""
     try:
@@ -137,7 +137,7 @@ def update_redis_key(request, db_index: int, key: str, data: RedisKeyUpdateSchem
         raise
 
 
-@router.delete("/redis_manager/{db_index}/keys/{key}", response=RedisOperationResponse)
+@router.delete("/redis_manager/{db_index}/keys/{key}", response=RedisOperationResponse, summary="删除Redis键")
 def delete_redis_key(request, db_index: int, key: str):
     """删除Redis键"""
     try:
@@ -154,7 +154,7 @@ def delete_redis_key(request, db_index: int, key: str):
         raise
 
 
-@router.post("/redis_manager/{db_index}/keys/batch-delete", response=RedisOperationResponse)
+@router.post("/redis_manager/{db_index}/keys/batch-delete", response=RedisOperationResponse, summary="批量删除Redis键")
 def batch_delete_redis_keys(request, db_index: int, data: RedisBatchDeleteSchema):
     """批量删除Redis键"""
     try:
@@ -172,7 +172,7 @@ def batch_delete_redis_keys(request, db_index: int, data: RedisBatchDeleteSchema
         raise
 
 
-@router.post("/redis_manager/{db_index}/keys/rename", response=RedisOperationResponse)
+@router.post("/redis_manager/{db_index}/keys/rename", response=RedisOperationResponse, summary="重命名Redis键")
 def rename_redis_key(request, db_index: int, data: RedisKeyRenameSchema):
     """重命名Redis键"""
     try:
@@ -194,7 +194,7 @@ def rename_redis_key(request, db_index: int, data: RedisKeyRenameSchema):
         raise
 
 
-@router.post("/redis_manager/{db_index}/keys/expire", response=RedisOperationResponse)
+@router.post("/redis_manager/{db_index}/keys/expire", response=RedisOperationResponse, summary="设置Redis键过期时间")
 def set_redis_key_expire(request, db_index: int, data: RedisKeyExpireSchema):
     """设置Redis键过期时间"""
     try:
@@ -217,7 +217,7 @@ def set_redis_key_expire(request, db_index: int, data: RedisKeyExpireSchema):
         raise
 
 
-@router.post("/redis_manager/{db_index}/flush", response=RedisOperationResponse)
+@router.post("/redis_manager/{db_index}/flush", response=RedisOperationResponse, summary="清空Redis数据库")
 def flush_redis_database(request, db_index: int, data: RedisFlushDBSchema):
     """清空Redis数据库"""
     try:

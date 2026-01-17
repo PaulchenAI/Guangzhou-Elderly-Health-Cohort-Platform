@@ -52,15 +52,30 @@ def get_chunk_path(upload_id: str, chunk_index: int) -> str:
     return os.path.join(get_chunk_dir(upload_id), f'chunk_{chunk_index}')
 
 
-@router.post("/chunk/init", response=InitChunkUploadSchemaOut)
+@router.post("/chunk/init", response=InitChunkUploadSchemaOut, summary="初始化分块上传")
 def init_chunk_upload(request, data: InitChunkUploadSchemaIn):
     """
-    初始化分块上传
+    初始化分块上传（大文件上传第一步）
     
+    **调用顺序**: 本接口 → /chunk/upload（循环） → /chunk/merge
+    
+    功能说明:
     - 检查文件是否已存在（秒传功能）
-    - 生成上传ID
+    - 生成 upload_id（后续接口需要）
     - 计算分块数量
-    - 返回上传配置信息
+    
+    请求参数:
+    - filename: 文件名
+    - total_size: 文件总大小（字节）
+    - chunk_size: 分块大小（建议 5MB = 5242880）
+    - file_hash: 文件MD5（可选，用于秒传检测）
+    - parent_id: 父文件夹ID（可选）
+    
+    返回值:
+    - upload_id: 上传会话ID（后续 upload/merge 接口需要）
+    - total_chunks: 总分块数
+    - file_exists: 文件是否已存在（true 则无需上传）
+    - file_id: 已存在文件的ID（仅当 file_exists=true）
     """
     # 检查文件是否已存在（秒传）
     if data.file_hash:
@@ -113,7 +128,7 @@ def init_chunk_upload(request, data: InitChunkUploadSchemaIn):
     }
 
 
-@router.post("/chunk/upload", response=UploadChunkSchemaOut)
+@router.post("/chunk/upload", response=UploadChunkSchemaOut, summary="上传分块")
 def upload_chunk(
     request,
     upload_id: str = Form(...),
@@ -121,11 +136,20 @@ def upload_chunk(
     chunk: UploadedFile = File(...),
 ):
     """
-    上传单个分块
+    上传单个分块（大文件上传第二步，需循环调用）
     
-    - 接收分块数据
-    - 保存到临时目录
-    - 更新上传进度
+    **前置条件**: 必须先调用 /chunk/init 获取 upload_id
+    **后续操作**: 所有分块上传完成后调用 /chunk/merge
+    
+    请求参数（Form-Data）:
+    - upload_id: 上传会话ID（来自 init 接口）
+    - chunk_index: 分块索引（从 0 开始，到 total_chunks-1）
+    - chunk: 分块文件数据
+    
+    返回值:
+    - chunk_index: 当前分块索引
+    - uploaded: 是否上传成功
+    - total_uploaded: 已上传的分块数量
     """
     # 获取上传信息
     cache_key = get_chunk_upload_key(upload_id)
@@ -161,13 +185,20 @@ def upload_chunk(
         return HttpResponse(f'分块上传失败: {str(e)}', status=500)
 
 
-@router.get("/chunk/status", response=ChunkUploadStatusSchemaOut)
+@router.get("/chunk/status", response=ChunkUploadStatusSchemaOut, summary="获取分块上传状态")
 def get_chunk_upload_status(request, upload_id: str):
     """
-    获取分块上传状态
+    获取分块上传状态（可选，用于断点续传）
     
-    - 查询已上传的分块
-    - 返回上传进度
+    **使用场景**: 上传中断后，调用此接口获取已上传的分块，继续上传剩余分块
+    
+    请求参数:
+    - upload_id: 上传会话ID
+    
+    返回值:
+    - uploaded_chunks: 已上传的分块索引列表
+    - total_chunks: 总分块数
+    - completed: 是否全部上传完成
     """
     cache_key = get_chunk_upload_key(upload_id)
     upload_info = cache.get(cache_key)
@@ -187,17 +218,26 @@ def get_chunk_upload_status(request, upload_id: str):
     }
 
 
-@router.post("/chunk/merge", response=FileManagerSchemaOut)
+@router.post("/chunk/merge", response=FileManagerSchemaOut, summary="合并分块文件")
 def merge_chunks(request, data: MergeChunksSchemaIn):
     """
-    合并分块文件
+    合并分块文件（大文件上传最后一步）
     
+    **前置条件**: 所有分块必须已通过 /chunk/upload 上传完成
+    
+    处理流程:
     - 验证所有分块已上传
-    - 按顺序合并分块
-    - 计算文件MD5
-    - 保存到存储后端
+    - 按顺序合并分块为完整文件
+    - 计算文件 MD5 并检查秒传
+    - 保存到存储后端（本地/MinIO）
     - 创建数据库记录
-    - 清理临时文件
+    - 清理临时分块文件
+    
+    请求参数:
+    - upload_id: 上传会话ID（来自 init 接口）
+    
+    返回值:
+    - 完整的文件信息（id, name, url 等）
     """
     upload_id = data.upload_id
     cache_key = get_chunk_upload_key(upload_id)
@@ -317,13 +357,19 @@ def merge_chunks(request, data: MergeChunksSchemaIn):
         return HttpResponse(f'合并文件失败: {str(e)}', status=500)
 
 
-@router.delete("/chunk/cancel")
+@router.delete("/chunk/cancel", summary="取消分块上传")
 def cancel_chunk_upload(request, upload_id: str):
     """
-    取消分块上传
+    取消分块上传（清理未完成的上传）
     
-    - 清理临时文件
-    - 删除缓存信息
+    **使用场景**: 用户取消上传或上传失败时，调用此接口清理临时数据
+    
+    处理流程:
+    - 清理临时分块文件
+    - 删除缓存中的上传会话信息
+    
+    请求参数:
+    - upload_id: 上传会话ID
     """
     try:
         # 清理临时文件

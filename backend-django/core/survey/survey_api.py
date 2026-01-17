@@ -358,19 +358,29 @@ def _get_value_label(value, field_name: str, options_map: dict, field_option: di
 @router.get(
     "/survey/schemas", 
     response=List[SurveySchemaConfigSchemaOut], 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取问卷配置列表（分页）",
 )
 @paginate(MyPagination)
 def list_schemas(request, filters: SurveySchemaConfigFilters = Query(...)):
     """
     获取问卷 Schema 配置列表（分页）
     
+    **使用场景**: 查询有哪些问卷类型，获取 schema_id 用于后续数据查询
+    **后续操作**: 使用返回的 id 调用 /survey/query 查询问卷数据
+    
     查询参数:
-    - page: 页码
-    - page_size: 每页数量
-    - survey_type: 问卷类型（模糊查询）
-    - survey_name: 问卷名称（模糊查询）
+    - page: 页码（默认 1）
+    - page_size: 每页数量（默认 10）
+    - survey_type: 问卷类型标识（如 personality, outdoor_activity）
+    - survey_name: 问卷名称（模糊查询，如 "性格"）
     - is_active: 是否激活
+    
+    返回字段说明:
+    - id: Schema ID（用于 query/export 接口）
+    - survey_type: 问卷类型标识
+    - survey_name: 问卷显示名称
+    - fields: 字段配置（定义了可查询的字段）
     """
     return retrieve(request, SurveySchemaConfig, filters)
 
@@ -378,7 +388,8 @@ def list_schemas(request, filters: SurveySchemaConfigFilters = Query(...)):
 @router.get(
     "/survey/schemas/all", 
     response=List[SurveySchemaConfigSchemaOut], 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取所有问卷配置",
 )
 def list_all_schemas(request, is_active: Optional[bool] = True):
     """
@@ -396,7 +407,8 @@ def list_all_schemas(request, is_active: Optional[bool] = True):
 @router.get(
     "/survey/schemas/{schema_id}", 
     response=SurveySchemaConfigSchemaOut, 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取问卷配置详情",
 )
 def get_schema(request, schema_id: str):
     """
@@ -411,7 +423,8 @@ def get_schema(request, schema_id: str):
 @router.get(
     "/survey/schemas/by-type/{survey_type}", 
     response=SurveySchemaConfigSchemaOut, 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="根据类型获取问卷配置",
 )
 def get_schema_by_type(request, survey_type: str):
     """
@@ -434,7 +447,8 @@ def get_schema_by_type(request, survey_type: str):
 @router.get(
     "/survey/records", 
     response=List[SurveyRecordSchemaOut], 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取问卷数据列表（分页）",
 )
 @paginate(MyPagination)
 def list_records(request, filters: SurveyRecordFilters = Query(...)):
@@ -456,7 +470,8 @@ def list_records(request, filters: SurveyRecordFilters = Query(...)):
 @router.get(
     "/survey/records/{record_id}", 
     response=SurveyRecordSchemaOut, 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取问卷数据详情",
 )
 def get_record(request, record_id: str):
     """
@@ -471,18 +486,31 @@ def get_record(request, record_id: str):
 @router.post(
     "/survey/query", 
     response=SurveyQueryResult, 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="查询问卷数据",
 )
 def query_records(request, data: SurveyQueryIn):
     """
     动态查询问卷数据（根据 Schema 配置）
     
+    **前置条件**: 需要先调用 /survey/schemas 获取 schema_id
+    **典型流程**: 获取配置列表 → 选择问卷类型 → 调用本接口查询数据
+    
     请求体:
-    - schema_id: Schema 配置 ID
-    - page: 页码
-    - page_size: 每页数量
-    - filters: 过滤条件
-    - order_by: 排序字段
+    - schema_id: Schema 配置 ID（必填，来自 /survey/schemas）
+    - page: 页码（默认 1）
+    - page_size: 每页数量（默认 10）
+    - filters: 过滤条件数组，格式 [{"field": "字段名", "operator": "eq/like/gt/gte/lt/lte", "value": "值"}]
+    - order_by: 排序字段（如 "-record_time" 表示按记录时间倒序）
+    
+    返回值:
+    - items: 问卷记录列表（包含主问卷字段和子问卷数据）
+    - total: 总记录数
+    - page/page_size: 分页信息
+    
+    **使用示例**:
+    查询性格特征问卷: {"schema_id": "xxx", "page": 1, "page_size": 10}
+    带条件查询: {"schema_id": "xxx", "filters": [{"field": "patient_name", "operator": "like", "value": "张"}]}
     """
     start_time = time.time()
     
@@ -699,7 +727,7 @@ def query_records(request, data: SurveyQueryIn):
     )
 
 
-@router.post("/survey/export", tags=["问卷管理"])
+@router.post("/survey/export", tags=["问卷管理"], summary="导出问卷数据")
 def export_records(request, data: SurveyExportIn):
     """
     导出问卷数据（Excel/CSV）
@@ -964,7 +992,8 @@ def _export_excel(filename: str, headers: List[str], rows: List[list]) -> HttpRe
 @router.get(
     "/survey/import-logs", 
     response=List[SurveyImportLogSchemaOut], 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取导入日志列表（分页）",
 )
 @paginate(MyPagination)
 def list_import_logs(request, filters: SurveyImportLogFilters = Query(...)):
@@ -985,7 +1014,8 @@ def list_import_logs(request, filters: SurveyImportLogFilters = Query(...)):
 @router.get(
     "/survey/import-logs/{log_id}", 
     response=SurveyImportLogSchemaOut, 
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="获取导入日志详情",
 )
 def get_import_log(request, log_id: str):
     """
@@ -1004,7 +1034,8 @@ def get_import_log(request, log_id: str):
 @router.post(
     "/survey/sync",
     response=SurveySyncOut,
-    tags=["问卷管理"]
+    tags=["问卷管理"],
+    summary="触发问卷数据同步",
 )
 def trigger_sync(request, data: SurveySyncIn):
     """

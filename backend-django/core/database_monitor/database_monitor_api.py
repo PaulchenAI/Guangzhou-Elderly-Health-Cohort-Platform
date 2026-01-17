@@ -167,7 +167,7 @@ def get_database_configs() -> List[dict]:
     return configs
 
 
-@router.get("/database_monitor/configs", response=List[DatabaseConfigSchema])
+@router.get("/database_monitor/configs", response=List[DatabaseConfigSchema], summary="获取数据库监控配置列表")
 def get_database_monitor_configs(request):
     """获取数据库监控配置列表"""
     configs = get_database_configs()
@@ -183,7 +183,7 @@ def get_database_monitor_configs(request):
     ) for config in configs]
 
 
-@router.get("/database_monitor/{db_name}/overview", response=DatabaseOverviewSchema)
+@router.get("/database_monitor/{db_name}/overview", response=DatabaseOverviewSchema, summary="获取数据库概览信息")
 def get_database_overview(request, db_name: str):
     """获取数据库概览信息"""
     configs = get_database_configs()
@@ -205,7 +205,7 @@ def get_database_overview(request, db_name: str):
     return DatabaseOverviewSchema(**data)
 
 
-@router.get("/database_monitor/{db_name}/realtime", response=DatabaseRealtimeStatsSchema)
+@router.get("/database_monitor/{db_name}/realtime", response=DatabaseRealtimeStatsSchema, summary="获取数据库实时统计信息")
 def get_database_realtime_stats(request, db_name: str):
     """获取数据库实时统计信息"""
     configs = get_database_configs()
@@ -227,7 +227,7 @@ def get_database_realtime_stats(request, db_name: str):
     return DatabaseRealtimeStatsSchema(**data)
 
 
-@router.post("/database_monitor/{db_name}/test", response=DatabaseConnectionTestSchema)
+@router.post("/database_monitor/{db_name}/test", response=DatabaseConnectionTestSchema, summary="测试数据库连接")
 def test_database_connection(request, db_name: str):
     """测试数据库连接"""
     configs = get_database_configs()

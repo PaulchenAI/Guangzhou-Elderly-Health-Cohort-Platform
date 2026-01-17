@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.post("/dict", response=DictSchemaOut, tags=["字典管理"])
+@router.post("/dict", response=DictSchemaOut, tags=["字典管理"], summary="创建字典")
 def create_dict(request, data: DictSchemaIn):
     """
     创建字典
@@ -43,7 +43,7 @@ def create_dict(request, data: DictSchemaIn):
     return query_set
 
 
-@router.delete("/dict/{dict_id}", response=DictSchemaOut, tags=["字典管理"])
+@router.delete("/dict/{dict_id}", response=DictSchemaOut, tags=["字典管理"], summary="删除字典")
 def delete_dict(request, dict_id: str):
     """
     删除字典
@@ -70,7 +70,7 @@ def delete_dict(request, dict_id: str):
     return instance
 
 
-@router.put("/dict/{dict_id}", response=DictSchemaOut, tags=["字典管理"])
+@router.put("/dict/{dict_id}", response=DictSchemaOut, tags=["字典管理"], summary="更新字典")
 def update_dict(request, dict_id: str, data: DictSchemaIn):
     """
     更新字典
@@ -108,7 +108,7 @@ def update_dict(request, dict_id: str, data: DictSchemaIn):
     return instance
 
 
-@router.get("/dict", response=List[DictSchemaOut], tags=["字典管理"])
+@router.get("/dict", response=List[DictSchemaOut], tags=["字典管理"], summary="获取字典列表（分页）")
 @paginate(MyPagination)
 def list_dict(request, filters: DictFilters = Query(...)):
     """
@@ -125,7 +125,7 @@ def list_dict(request, filters: DictFilters = Query(...)):
     return query_set
 
 
-@router.get("/dict/get/all", response=List[DictSchemaOut], tags=["字典管理"])
+@router.get("/dict/get/all", response=List[DictSchemaOut], tags=["字典管理"], summary="获取所有字典")
 def list_all_dict(request):
     """
     获取所有字典 (不分页，有缓存)

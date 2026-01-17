@@ -37,7 +37,7 @@ from core.file_manager.storage_backends import get_storage_backend
 router = Router()
 
 
-@router.post("/file_manager/upload", response=FileManagerSchemaOut)
+@router.post("/file_manager/upload", response=FileManagerSchemaOut, summary="上传文件")
 def upload_file(
     request,
     file: UploadedFile = File(...),
@@ -88,7 +88,7 @@ def upload_file(
     return file_obj
 
 
-@router.post("/file_manager/folder", response=FileManagerSchemaOut)
+@router.post("/file_manager/folder", response=FileManagerSchemaOut, summary="创建文件夹")
 def create_folder(request, data: CreateFolderSchemaIn):
     """创建文件夹"""
     # 获取父文件夹
@@ -121,7 +121,7 @@ def create_folder(request, data: CreateFolderSchemaIn):
     return folder
 
 
-@router.get("/file_manager", response=List[FileManagerSchemaOut])
+@router.get("/file_manager", response=List[FileManagerSchemaOut], summary="获取文件列表（分页）")
 @paginate(MyPagination)
 def list_files(request, filters: FileManagerFilters = Query(...)):
     """获取文件列表"""
@@ -136,14 +136,14 @@ def list_files(request, filters: FileManagerFilters = Query(...)):
     return query_set
 
 
-@router.get("/file_manager/tree", response=List[FileManagerSchemaOut])
+@router.get("/file_manager/tree", response=List[FileManagerSchemaOut], summary="获取文件夹树结构")
 def get_folder_tree(request):
     """获取文件夹树结构"""
     folders = FileManager.objects.filter(type='folder').order_by('name')
     return folders
 
 
-@router.put("/file_manager/{file_id}/rename", response=FileManagerSchemaOut)
+@router.put("/file_manager/{file_id}/rename", response=FileManagerSchemaOut, summary="重命名文件")
 def rename_item(request, file_id: UUID, data: RenameItemSchemaIn):
     """重命名文件/文件夹"""
     item = get_object_or_404(FileManager, id=file_id)
@@ -174,7 +174,7 @@ def rename_item(request, file_id: UUID, data: RenameItemSchemaIn):
     return item
 
 
-@router.put("/file_manager/move", response=dict)
+@router.put("/file_manager/move", response=dict, summary="移动文件")
 def move_items(request, data: MoveItemsSchemaIn):
     """移动文件/文件夹"""
     # 获取目标文件夹
@@ -219,7 +219,7 @@ def move_items(request, data: MoveItemsSchemaIn):
     return response_success()
 
 
-@router.delete("/file_manager/{file_id}")
+@router.delete("/file_manager/{file_id}", summary="删除文件")
 def delete_item(request, file_id: UUID):
     """删除文件/文件夹"""
     item = get_object_or_404(FileManager, id=file_id)
@@ -235,7 +235,7 @@ def delete_item(request, file_id: UUID):
     return response_success()
 
 
-@router.post("/file_manager/batch/delete")
+@router.post("/file_manager/batch/delete", summary="批量删除文件")
 def batch_delete(request, data: BatchDeleteSchemaIn):
     """批量删除文件/文件夹"""
     storage = get_storage_backend()
@@ -253,12 +253,12 @@ def batch_delete(request, data: BatchDeleteSchemaIn):
     return response_success()
 
 
-@router.get("/file_manager/file_info/{id}", response=FileManagerSimpleSchemaOut)
+@router.get("/file_manager/file_info/{id}", response=FileManagerSimpleSchemaOut, summary="获取文件信息")
 def get_file_info(request, id: UUID):
     """获取文件信息"""
     return get_object_or_404(FileManager, id=id)
 
-@router.get("/file_manager/file/download", auth=None)
+@router.get("/file_manager/file/download", auth=None, summary="下载文件")
 def download_file(request, path: str = Query(...)):
     """下载文件"""
     # 查找文件记录
@@ -290,7 +290,7 @@ def download_file(request, path: str = Query(...)):
         return HttpResponse(status=302, headers={'Location': file_obj.url})
 
 
-@router.get("/file_manager/storage/config", response=FileStorageConfigSchema)
+@router.get("/file_manager/storage/config", response=FileStorageConfigSchema, summary="获取存储配置")
 def get_storage_config(request):
     """获取存储配置"""
     from django.conf import settings
@@ -304,7 +304,7 @@ def get_storage_config(request):
     return config
 
 
-@router.put("/file_manager/storage/config", response=dict)
+@router.put("/file_manager/storage/config", response=dict, summary="更新存储配置")
 def update_storage_config(request, data: FileStorageConfigSchema):
     """更新存储配置（需要管理员权限）"""
     # TODO: 实现配置更新逻辑，可能需要保存到数据库或配置文件
@@ -331,7 +331,7 @@ def _update_children_paths(folder: FileManager, old_path: str, new_path: str):
             _update_children_paths(child, old_path, new_path)
 
 
-@router.get("/file_manager/url/{file_id}", auth=None)
+@router.get("/file_manager/url/{file_id}", auth=None, summary="获取文件访问URL")
 def get_file_url(request, file_id: UUID):
     """通过文件ID获取文件访问URL"""
     file_obj = get_object_or_404(FileManager, id=file_id, type='file')
@@ -363,7 +363,7 @@ def get_file_url(request, file_id: UUID):
     return response_success(data={'url': file_obj.storage_path})
 
 
-@router.get("/file_manager/batch/urls", auth=None)
+@router.get("/file_manager/batch/urls", auth=None, summary="批量获取文件URL")
 def get_batch_file_urls(request, ids: str = Query(...)):
     """批量获取文件访问URL"""
     file_ids = [UUID(id_str.strip()) for id_str in ids.split(',') if id_str.strip()]
@@ -399,7 +399,7 @@ def get_batch_file_urls(request, ids: str = Query(...)):
     return result
 
 
-@router.get("/file_manager/stream/{file_id}")
+@router.get("/file_manager/stream/{file_id}", summary="流式传输文件")
 def stream_file(request, file_id: UUID):
     """通过后端流式传输文件（支持所有存储类型）"""
     file_obj = get_object_or_404(FileManager, id=file_id, type='file')
@@ -459,7 +459,7 @@ def stream_file(request, file_id: UUID):
         return HttpResponse(f"文件传输失败: {str(e)}", status=500)
 
 
-@router.get("/file_manager/proxy/{file_id}", auth=None)
+@router.get("/file_manager/proxy/{file_id}", auth=None, summary="代理文件访问")
 def proxy_file(request, file_id: UUID, download: bool = Query(False)):
     """代理文件访问（强制通过后端转发，支持断点续传）"""
     file_obj = get_object_or_404(FileManager, id=file_id, type='file')

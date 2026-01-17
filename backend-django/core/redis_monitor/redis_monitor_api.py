@@ -32,7 +32,7 @@ def get_redis_config():
     return redis_host, redis_port, redis_password, redis_db
 
 
-@router.get("/redis_monitor/overview", response=RedisMonitorOverviewSchema)
+@router.get("/redis_monitor/overview", response=RedisMonitorOverviewSchema, summary="获取Redis监控概览")
 def get_redis_monitor_overview(request):
     """获取Redis监控概览信息"""
     redis_host, redis_port, redis_password, redis_db = get_redis_config()
@@ -48,7 +48,7 @@ def get_redis_monitor_overview(request):
     return RedisMonitorOverviewSchema(**data)
 
 
-@router.get("/redis_monitor/realtime", response=RedisRealtimeStatsSchema)
+@router.get("/redis_monitor/realtime", response=RedisRealtimeStatsSchema, summary="获取Redis实时统计")
 def get_redis_realtime_stats(request):
     """获取Redis实时统计信息"""
     redis_host, redis_port, redis_password, redis_db = get_redis_config()
@@ -64,7 +64,7 @@ def get_redis_realtime_stats(request):
     return RedisRealtimeStatsSchema(**data)
 
 
-@router.post("/redis_monitor/test", response=RedisConnectionTestSchema)
+@router.post("/redis_monitor/test", response=RedisConnectionTestSchema, summary="测试Redis连接")
 def test_redis_connection(request):
     """测试Redis连接"""
     redis_host, redis_port, redis_password, redis_db = get_redis_config()
@@ -80,7 +80,7 @@ def test_redis_connection(request):
     return RedisConnectionTestSchema(**result)
 
 
-@router.get("/redis_monitor/config", response=RedisConfigSchema)
+@router.get("/redis_monitor/config", response=RedisConfigSchema, summary="获取Redis配置信息")
 def get_redis_config_info(request):
     """获取Redis配置信息"""
     redis_host, redis_port, redis_password, redis_db = get_redis_config()
