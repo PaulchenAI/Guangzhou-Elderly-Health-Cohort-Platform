@@ -21,6 +21,12 @@
     
     # 使用外部配置文件指定中文名称映射
     python manage.py batch_create_table_configs --prefix WORKFLOW --config-file path/to/mapping.json
+    
+    # 使用 meaning.json 文件获取中文名称（优先级高于 config-file）
+    python manage.py batch_create_table_configs --prefix FORMTABLE --meaning-dir docs/hospital/commentsql
+    
+    # 指定数据库表名前缀（匹配 meaning.json 时忽略前缀）
+    python manage.py batch_create_table_configs --prefix dbo_FORMTABLE --table-prefix dbo_
 """
 import json
 import os
@@ -71,6 +77,18 @@ class Command(BaseCommand):
             default=None,
             help='外部配置文件路径（JSON格式，包含表名和字段名的中文映射），默认使用 core/management/commands/table_name_mapping.json',
         )
+        parser.add_argument(
+            '--meaning-dir',
+            type=str,
+            default=None,
+            help='meaning.json 文件所在目录（优先级高于 config-file），默认使用 docs/hospital/commentsql',
+        )
+        parser.add_argument(
+            '--table-prefix',
+            type=str,
+            default=None,
+            help='数据库表名前缀，匹配 meaning.json 时会忽略此前缀（如 dbo_、hospital_）',
+        )
 
     def handle(self, *args, **options):
         list_only = options.get('list', False)
@@ -79,9 +97,22 @@ class Command(BaseCommand):
         update_existing = options.get('update', False)
         max_fields = options.get('max_fields', 30)
         config_file = options.get('config_file')
+        meaning_dir = options.get('meaning_dir')
+        table_prefix = options.get('table_prefix', '')
         
         # 加载配置文件
         name_mapping = self._load_name_mapping(config_file)
+        
+        # 加载 meaning.json 文件
+        meaning_mapping = self._load_meaning_files(meaning_dir)
+        if meaning_mapping:
+            self.stdout.write(self.style.SUCCESS(
+                f"已加载 {len(meaning_mapping)} 个表的 meaning.json 文件"
+            ))
+        if table_prefix:
+            self.stdout.write(self.style.SUCCESS(
+                f"表名前缀: {table_prefix}（匹配时将忽略此前缀）"
+            ))
         
         # 获取所有表
         tables = self._get_tables(prefix)
@@ -91,7 +122,7 @@ class Command(BaseCommand):
             return
         
         if list_only:
-            self._list_tables(tables)
+            self._list_tables(tables, meaning_mapping, table_prefix)
             return
         
         if not process_all and not prefix:
@@ -101,7 +132,7 @@ class Command(BaseCommand):
             return
         
         # 批量创建配置
-        self._create_configs(tables, update_existing, max_fields, name_mapping)
+        self._create_configs(tables, update_existing, max_fields, name_mapping, meaning_mapping, table_prefix)
 
     def _get_tables(self, prefix=None):
         """获取数据库中的表"""
@@ -122,7 +153,13 @@ class Command(BaseCommand):
         
         return sorted(tables)
 
-    def _list_tables(self, tables):
+    def _strip_table_prefix(self, table_name, table_prefix):
+        """去掉表名前缀，用于匹配 meaning.json"""
+        if table_prefix and table_name.startswith(table_prefix):
+            return table_name[len(table_prefix):]
+        return table_name
+    
+    def _list_tables(self, tables, meaning_mapping=None, table_prefix=None):
         """列出表"""
         # 按前缀分组
         grouped = {}
@@ -143,7 +180,12 @@ class Command(BaseCommand):
                     table_name__iexact=t, is_deleted=False
                 ).exists()
                 status = " [已配置]" if has_config else ""
-                self.stdout.write(f"  - {t}{status}")
+                # 显示 meaning.json 中的中文名称（去掉前缀后匹配）
+                meaning_name = ""
+                stripped_name = self._strip_table_prefix(t, table_prefix)
+                if meaning_mapping and stripped_name in meaning_mapping:
+                    meaning_name = f" ({meaning_mapping[stripped_name].get('table_meaning', '')})"
+                self.stdout.write(f"  - {t}{meaning_name}{status}")
             if len(prefix_tables) > 10:
                 self.stdout.write(f"  ... 还有 {len(prefix_tables) - 10} 个表")
         
@@ -151,7 +193,7 @@ class Command(BaseCommand):
         configured_count = TableQueryConfig.objects.filter(is_deleted=False).count()
         self.stdout.write(f"\n当前已配置: {configured_count} 个表")
 
-    def _create_configs(self, tables, update_existing, max_fields, name_mapping):
+    def _create_configs(self, tables, update_existing, max_fields, name_mapping, meaning_mapping=None, table_prefix=None):
         """批量创建配置"""
         created_count = 0
         updated_count = 0
@@ -170,14 +212,14 @@ class Command(BaseCommand):
                     continue
                 
                 # 获取表结构
-                fields = self._detect_table_structure(table, max_fields, name_mapping)
+                fields = self._detect_table_structure(table, max_fields, name_mapping, meaning_mapping, table_prefix)
                 if not fields:
                     self.stdout.write(self.style.WARNING(f"  跳过 {table}: 无法获取表结构"))
                     error_count += 1
                     continue
                 
                 # 生成显示名称
-                display_name = self._generate_display_name(table, name_mapping)
+                display_name = self._generate_display_name(table, name_mapping, meaning_mapping, table_prefix)
                 
                 # 生成配置
                 config_json = {
@@ -224,7 +266,7 @@ class Command(BaseCommand):
         total = TableQueryConfig.objects.filter(is_deleted=False).count()
         self.stdout.write(f"\n当前总配置数: {total}")
 
-    def _detect_table_structure(self, table_name, max_fields, name_mapping):
+    def _detect_table_structure(self, table_name, max_fields, name_mapping, meaning_mapping=None, table_prefix=None):
         """自动检测表结构"""
         try:
             with connection.cursor() as cursor:
@@ -242,6 +284,12 @@ class Command(BaseCommand):
             if not columns:
                 return None
             
+            # 获取 meaning.json 中该表的字段映射（去掉前缀后匹配）
+            meaning_fields = {}
+            stripped_name = self._strip_table_prefix(table_name, table_prefix)
+            if meaning_mapping and stripped_name in meaning_mapping:
+                meaning_fields = meaning_mapping[stripped_name].get('fields', {})
+            
             fields = []
             for col in columns:
                 col_name = col[0]
@@ -249,10 +297,12 @@ class Command(BaseCommand):
                 col_key = col[2]  # PRI, UNI, MUL
                 col_comment = col[3] or ''  # COMMENT
                 
-                # 获取字段的中文显示名称（优先级：COMMENT > 配置文件 > 字段名）
+                # 获取字段的中文显示名称（优先级：COMMENT > meaning.json > 配置文件 > 字段名）
                 field_display_name = col_name
                 if col_comment and col_comment.strip():
                     field_display_name = col_comment.strip()
+                elif col_name in meaning_fields:
+                    field_display_name = meaning_fields[col_name]
                 elif name_mapping and 'fields' in name_mapping:
                     table_fields = name_mapping['fields'].get(table_name, {})
                     if col_name in table_fields:
@@ -321,6 +371,74 @@ class Command(BaseCommand):
             ))
             return None
     
+    def _load_meaning_files(self, meaning_dir=None):
+        """加载 meaning.json 文件，构建表名和字段名的映射"""
+        import glob
+        
+        # 确定目录路径
+        if meaning_dir is None:
+            # 默认使用 docs/hospital/commentsql 目录
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+            meaning_dir = os.path.join(project_root, 'docs', 'hospital', 'commentsql')
+        
+        if not os.path.exists(meaning_dir):
+            return None
+        
+        # 扫描所有 *_meaning.json 文件，忽略 all_meanings.json
+        pattern = os.path.join(meaning_dir, '*_meaning.json')
+        files = glob.glob(pattern)
+        
+        if not files:
+            return None
+        
+        # 构建映射结构: {table_name: {table_meaning: str, fields: {field_name: meaning}}}
+        mapping = {}
+        
+        for file_path in files:
+            # 忽略 all_meanings.json
+            if os.path.basename(file_path) == 'all_meanings.json':
+                continue
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # 解析 JSON 结构
+                if 'table' not in data:
+                    continue
+                
+                table_data = data['table']
+                table_name = table_data.get('table_name')
+                if not table_name:
+                    continue
+                
+                # 提取表的中文含义
+                table_meaning = table_data.get('inferred_meaning', '')
+                
+                # 提取字段的中文含义
+                fields_mapping = {}
+                for field in table_data.get('fields', []):
+                    field_name = field.get('field_name')
+                    field_meaning = field.get('inferred_meaning')
+                    if field_name and field_meaning:
+                        fields_mapping[field_name] = field_meaning
+                
+                mapping[table_name] = {
+                    'table_meaning': table_meaning,
+                    'fields': fields_mapping
+                }
+                
+            except json.JSONDecodeError as e:
+                self.stdout.write(self.style.WARNING(
+                    f"解析 meaning.json 文件失败: {file_path}, {e}"
+                ))
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(
+                    f"读取 meaning.json 文件失败: {file_path}, {e}"
+                ))
+        
+        return mapping if mapping else None
+    
     def _get_table_comment(self, table_name):
         """从数据库获取表的 COMMENT"""
         try:
@@ -339,18 +457,25 @@ class Command(BaseCommand):
             pass
         return None
     
-    def _generate_display_name(self, table_name, name_mapping):
-        """生成显示名称（优先级：数据库 COMMENT > 配置文件 > 表名）"""
+    def _generate_display_name(self, table_name, name_mapping, meaning_mapping=None, table_prefix=None):
+        """生成显示名称（优先级：数据库 COMMENT > meaning.json > 配置文件 > 表名）"""
         # 1. 优先使用数据库表的 COMMENT
         table_comment = self._get_table_comment(table_name)
         if table_comment:
             return table_comment
         
-        # 2. 使用配置文件中的映射
+        # 2. 使用 meaning.json 中的映射（去掉前缀后匹配）
+        stripped_name = self._strip_table_prefix(table_name, table_prefix)
+        if meaning_mapping and stripped_name in meaning_mapping:
+            table_meaning = meaning_mapping[stripped_name].get('table_meaning')
+            if table_meaning:
+                return table_meaning
+        
+        # 3. 使用配置文件中的映射
         if name_mapping and 'tables' in name_mapping:
             if table_name in name_mapping['tables']:
                 return name_mapping['tables'][table_name]
         
-        # 3. 返回表名本身
+        # 4. 返回表名本身
         return table_name
 
