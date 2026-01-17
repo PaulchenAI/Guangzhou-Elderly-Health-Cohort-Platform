@@ -239,6 +239,137 @@ output_file = extractor.save_to_json(table_fks, 'output_dir')
 - [LLM 使用指南](../../docs/hospital/docs/LLM_USAGE_GUIDE.md)
 - [通用 LLM 支持](../../docs/hospital/docs/GENERIC_LLM_SUPPORT.md)
 
+### SQL 表名和字段名中文含义推断
+
+AIagent 提供 SQL 表名和字段名中文含义推断工具，使用 LLM 分析 SQL 文件并推断表名和字段名的中文含义。
+
+#### 快速开始
+
+```bash
+# 单文件推断
+python -m AIagent.src.sql_import.sql_meaning_cli infer-file \
+  docs/hospital/convertsql/create/BS_STAFF_TYPE.sql \
+  --ignore-prefix gzlry_
+
+# 批量推断
+python -m AIagent.src.sql_import.sql_meaning_cli infer-dir \
+  docs/hospital/convertsql/create \
+  --ignore-prefix gzlry_
+```
+
+#### 核心特性
+
+- **直接 LLM 处理**：将完整 SQL 发送给 LLM，同时完成解析和推断
+- **JSON 格式验证**：使用 Pydantic 模型验证 LLM 输出格式
+- **智能重试**：验证失败时带上下文重试，将错误信息反馈给 LLM
+- **结构化输出**：JSON 格式，包含表/字段含义、置信度、推理过程
+- **可配置前缀**：支持忽略表名前缀（默认 `gzlry_`）
+- **自定义模板**：支持自定义提示词模板
+
+#### 输出示例
+
+```json
+{
+  "file_path": "docs/hospital/convertsql/create/BS_STAFF_TYPE.sql",
+  "table": {
+    "table_name": "BS_STAFF_TYPE",
+    "original_comment": "人员分类",
+    "inferred_meaning": "人员分类信息表",
+    "confidence": 0.95,
+    "reasoning": "表名为 BS_STAFF_TYPE，结合注释'人员分类'...",
+    "fields": [
+      {
+        "field_name": "mainid",
+        "field_type": "VARCHAR(50)",
+        "original_comment": "mainId",
+        "inferred_meaning": "主键ID",
+        "confidence": 0.95,
+        "reasoning": "字段名为 mainid，通常表示主键标识符"
+      }
+    ]
+  },
+  "metadata": {
+    "processed_at": "2026-01-16T21:31:33",
+    "llm_model": "qwen-plus",
+    "llm_provider": "openai"
+  }
+}
+```
+
+#### 使用示例
+
+```python
+from AIagent.src.sql_import import SQLMeaningInferencer
+
+# 创建推断器
+inferencer = SQLMeaningInferencer(
+    ignore_prefix='gzlry_',
+    skip_existing=True,  # 跳过已存在结果
+    concurrency=3        # 并发数量
+)
+
+# 单文件推断
+result = await inferencer.infer_file('path/to/file.sql')
+
+# 批量推断（并发处理）
+results = await inferencer.infer_directory('path/to/sql_dir')
+
+# 只重试失败的任务
+results = await inferencer.infer_directory('path/to/sql_dir', retry_failed=True)
+
+# 清除错误日志
+inferencer.clear_error_log()
+```
+
+#### CLI 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-o, --output` | 输出路径 | `docs/hospital/commentsql/` |
+| `--ignore-prefix` | 忽略的表名前缀 | `gzlry_` |
+| `--prompt-template` | 自定义提示词模板文件 | 内置模板 |
+| `--skip-existing` | 跳过已存在结果的文件 | 否 |
+| `--retry-failed` | 只重试之前失败的任务 | 否 |
+| `-c, --concurrency` | 并发处理数量 | `1` |
+
+#### 批量处理高级用法
+
+```bash
+# 跳过已存在结果，只处理新文件
+python -m AIagent.src.sql_import.sql_meaning_cli infer-dir ./sql --skip-existing
+
+# 并发处理（5 个任务同时执行）
+python -m AIagent.src.sql_import.sql_meaning_cli infer-dir ./sql -c 5
+
+# 跳过已存在 + 并发处理
+python -m AIagent.src.sql_import.sql_meaning_cli infer-dir ./sql --skip-existing -c 3
+
+# 只重试之前失败的任务
+python -m AIagent.src.sql_import.sql_meaning_cli infer-dir ./sql --retry-failed
+
+# 清除错误日志
+python -m AIagent.src.sql_import.sql_meaning_cli clear-errors
+```
+
+#### 错误日志
+
+批量处理时，失败的任务会记录到 `error_log.json` 文件中：
+
+```json
+{
+  "updated_at": "2026-01-16T10:30:00",
+  "total_failed": 2,
+  "failed_tasks": [
+    {
+      "file": "/path/to/failed.sql",
+      "file_name": "failed.sql",
+      "error": "LLM 调用超时",
+      "failed_at": "2026-01-16T10:25:00"
+    }
+  ]
+}
+```
+
 ## 架构设计
 
 ```

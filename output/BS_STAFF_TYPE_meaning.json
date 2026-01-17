@@ -1,0 +1,25 @@
+{
+  "file_path": "docs/hospital/convertsql/create/BS_STAFF_TYPE.sql",
+  "table": {
+    "table_name": "BS_STAFF_TYPE",
+    "original_comment": "人员分类",
+    "inferred_meaning": "人员分类",
+    "confidence": 1.0,
+    "reasoning": "表注释明确说明为'人员分类'，因此直接采用注释内容。",
+    "fields": [
+      {
+        "field_name": "mainid",
+        "field_type": "VARCHAR(50",
+        "original_comment": null,
+        "inferred_meaning": "主ID",
+        "confidence": 0.9,
+        "reasoning": "字段名为mainid，常见于数据库中表示主键或唯一标识符，结合命名习惯推断为'主ID'。"
+      }
+    ]
+  },
+  "metadata": {
+    "processed_at": "2026-01-16T21:17:53.094926",
+    "llm_model": "qwen-plus",
+    "llm_provider": "openai"
+  }
+}
