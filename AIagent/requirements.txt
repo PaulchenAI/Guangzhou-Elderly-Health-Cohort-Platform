@@ -24,6 +24,9 @@ redis>=5.0.1
 # Async Support
 aiofiles>=23.2.1
 
+# HTTP Client (Django API Integration)
+httpx>=0.25.0
+
 # Utilities
 asyncio>=3.4.3
 

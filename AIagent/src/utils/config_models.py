@@ -87,6 +87,22 @@ class RAGConfig(BaseModel):
     embedding_provider: Optional[str] = Field(default=None, description="嵌入模型提供商")
     embedding_model: str = Field(default="text-embedding-3-small", description="嵌入模型名称")
     embedding_api_key: Optional[str] = Field(default=None, description="嵌入模型API密钥")
+    embedding_base_url: Optional[str] = Field(default=None, description="嵌入模型API端点（用于阿里云百炼等兼容API）")
+    embedding_dimensions: Optional[int] = Field(default=None, ge=64, le=2048, description="向量维度（阿里云百炼支持64/128/256/512/768/1024/1536/2048，默认1024）")
+    embedding_max_batch_size: int = Field(default=10, ge=1, le=100, description="同步接口每次最多处理的文本条数（阿里云百炼同步接口最多10条）")
+
+
+class DjangoAPIConfigModel(BaseModel):
+    """Django API 集成配置"""
+    base_url: str = Field(default="http://localhost:8000", description="Django API 基础 URL")
+    username: str = Field(default="", description="登录用户名")
+    password: str = Field(default="", description="登录密码")
+    timeout: int = Field(default=30, ge=1, description="请求超时时间（秒）")
+    # RAG 检索配置
+    enable_rag: bool = Field(default=True, description="是否启用 RAG 检索")
+    keyword_filter_threshold: int = Field(default=20, ge=1, description="关键词过滤后最多保留的候选数")
+    retrieval_top_k: int = Field(default=10, ge=1, description="向量检索返回的 Top K 结果数")
+    similarity_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="向量相似度阈值")
 
 
 class Settings(BaseSettings):
@@ -159,6 +175,19 @@ class Settings(BaseSettings):
     embedding_provider: Optional[str] = Field(default=None, alias="EMBEDDING_PROVIDER")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
     embedding_api_key: Optional[str] = Field(default=None, alias="EMBEDDING_API_KEY")
+    embedding_base_url: Optional[str] = Field(default=None, alias="EMBEDDING_BASE_URL")
+    embedding_dimensions: Optional[int] = Field(default=None, alias="EMBEDDING_DIMENSIONS")
+    embedding_max_batch_size: int = Field(default=10, alias="EMBEDDING_MAX_BATCH_SIZE")
+    
+    # Django API 配置
+    django_api_base_url: str = Field(default="http://localhost:8000", alias="DJANGO_API_BASE_URL")
+    django_api_username: str = Field(default="", alias="DJANGO_API_USERNAME")
+    django_api_password: str = Field(default="", alias="DJANGO_API_PASSWORD")
+    django_api_timeout: int = Field(default=30, alias="DJANGO_API_TIMEOUT")
+    django_api_enable_rag: bool = Field(default=True, alias="DJANGO_API_ENABLE_RAG")
+    django_api_keyword_filter_threshold: int = Field(default=20, alias="DJANGO_API_KEYWORD_FILTER_THRESHOLD")
+    django_api_retrieval_top_k: int = Field(default=10, alias="DJANGO_API_RETRIEVAL_TOP_K")
+    django_api_similarity_threshold: float = Field(default=0.5, alias="DJANGO_API_SIMILARITY_THRESHOLD")
     
     def get_claude_code_config(self) -> ClaudeCodeConfig:
         """获取Claude Code配置对象"""
@@ -218,5 +247,21 @@ class Settings(BaseSettings):
             top_k=self.rag_top_k,
             embedding_provider=self.embedding_provider,
             embedding_model=self.embedding_model,
-            embedding_api_key=self.embedding_api_key
+            embedding_api_key=self.embedding_api_key,
+            embedding_base_url=self.embedding_base_url,
+            embedding_dimensions=self.embedding_dimensions,
+            embedding_max_batch_size=self.embedding_max_batch_size
+        )
+    
+    def get_django_api_config(self) -> DjangoAPIConfigModel:
+        """获取Django API配置对象"""
+        return DjangoAPIConfigModel(
+            base_url=self.django_api_base_url,
+            username=self.django_api_username,
+            password=self.django_api_password,
+            timeout=self.django_api_timeout,
+            enable_rag=self.django_api_enable_rag,
+            keyword_filter_threshold=self.django_api_keyword_filter_threshold,
+            retrieval_top_k=self.django_api_retrieval_top_k,
+            similarity_threshold=self.django_api_similarity_threshold
         )

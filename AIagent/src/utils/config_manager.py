@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from .env_loader import EnvLoader
 from .config_loader import ConfigLoader
-from .config_models import Settings, ClaudeCodeConfig, LLMConfig, VectorDBConfig, MemoryConfig, LoggingConfig, RAGConfig
+from .config_models import Settings, ClaudeCodeConfig, LLMConfig, VectorDBConfig, MemoryConfig, LoggingConfig, RAGConfig, DjangoAPIConfigModel
 
 
 class ConfigManager:
@@ -68,6 +68,10 @@ class ConfigManager:
     def get_rag_config(self) -> RAGConfig:
         """获取RAG配置"""
         return self.settings.get_rag_config()
+    
+    def get_django_api_config(self) -> DjangoAPIConfigModel:
+        """获取Django API配置"""
+        return self.settings.get_django_api_config()
     
     def get_agent_config(self, agent_name: str) -> dict:
         """
