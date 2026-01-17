@@ -7,13 +7,15 @@ Oracle 到 MySQL 的迁移流程涉及多个复杂步骤（转换、修复、导
 ## 变更内容
 
 - 新增 `SQLMigrationAgent` 智能体，基于 LangGraph + Claude Code CLI
-- 支持 6 个阶段的任务管理：
+- 支持 8 个阶段的任务管理：
   1. Oracle 脚本转 MySQL 脚本
   2. MySQL 脚本修复
   3. MySQL 脚本导入（大文件和批次管理）
-  4. Table config 生成导入
-  5. 中文含义 LLM 推理（支持外部 CSV 上下文）
-  6. 将中文含义导入 table config
+  4. 外键信息提取（从 Oracle SQL 提取外键关系）
+  5. 外键元数据导入（导入到 table_foreignkey_metadata 表）
+  6. Table config 生成导入
+  7. 中文含义 LLM 推理（支持外部 CSV 上下文）
+  8. 将中文含义导入 table config
 - 智能检查每个阶段的完成进度
 - 支持断点续做和失败重试
 - 提供 CLI 命令行使用方式

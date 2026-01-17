@@ -9,14 +9,16 @@
 - [ ] 2.1 实现阶段1：Oracle 转 MySQL（集成现有 convert-all 命令）
 - [ ] 2.2 实现阶段2：MySQL 脚本修复（调用现有修复逻辑）
 - [ ] 2.3 实现阶段3：MySQL 导入（集成现有 import-all 命令，支持批次管理）
-- [ ] 2.4 实现阶段4：Table Config 生成（集成 batch_create_table_configs Django 命令）
-- [ ] 2.5 实现阶段5：中文含义推理（集成 infer-dir 命令，支持 CSV 上下文）
-- [ ] 2.6 实现阶段6：含义导入 Config（更新 TableQueryConfig 的 displayName 字段）
+- [ ] 2.4 实现阶段4：外键信息提取（集成 extract-foreignkey-all 命令）
+- [ ] 2.5 实现阶段5：外键元数据导入（集成 import_foreignkey_metadata Django 命令）
+- [ ] 2.6 实现阶段6：Table Config 生成（集成 batch_create_table_configs Django 命令）
+- [ ] 2.7 实现阶段7：中文含义推理（集成 infer-dir 命令，支持 CSV 上下文）
+- [ ] 2.8 实现阶段8：含义导入 Config（更新 TableQueryConfig 的 displayName 字段）
 
 ## 3. LangGraph 工作流
 
 - [ ] 3.1 创建迁移工作流图（AIagent/src/sql_import/migration_workflow.py）
-- [ ] 3.2 实现节点函数（convert_node, fix_node, import_node, config_node, infer_node, apply_node）
+- [ ] 3.2 实现节点函数（convert_node, fix_node, import_node, fk_extract_node, fk_import_node, config_node, infer_node, apply_node）
 - [ ] 3.3 实现条件路由逻辑（根据阶段状态决定流向）
 - [ ] 3.4 集成 Claude Code CLI 执行器
 

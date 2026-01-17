@@ -19,16 +19,18 @@
 - **并且** 验证阶段完成条件
 - **并且** 自动推进到下一阶段或报告错误
 
-#### 场景：六阶段流程定义
+#### 场景：八阶段流程定义
 
 - **当** 执行迁移流程
 - **那么** 必须按顺序执行以下阶段：
   1. `convert`：Oracle 脚本转 MySQL 脚本
   2. `fix`：MySQL 脚本修复
   3. `import`：MySQL 脚本导入数据库
-  4. `config`：Table Config 生成
-  5. `infer`：中文含义 LLM 推理
-  6. `apply`：将中文含义导入 Table Config
+  4. `fk_extract`：从 Oracle SQL 提取外键关系
+  5. `fk_import`：导入外键元数据到 table_foreignkey_metadata 表
+  6. `config`：Table Config 生成
+  7. `infer`：中文含义 LLM 推理
+  8. `apply`：将中文含义导入 Table Config
 
 ---
 
@@ -49,6 +51,20 @@
 - **那么** 查询 `sql_import_log` 表获取导入状态
 - **并且** 按批次 ID 过滤统计成功/失败/待处理的文件数量
 - **并且** 返回详细的导入状态报告
+
+#### 场景：检查外键提取阶段
+
+- **当** 检查 `fk_extract` 阶段完成度
+- **那么** 统计源目录的 Oracle SQL 文件数量
+- **并且** 统计外键输出目录的 `*_foreignkeys.json` 文件数量
+- **并且** 返回提取完成率和提取策略统计
+
+#### 场景：检查外键导入阶段
+
+- **当** 检查 `fk_import` 阶段完成度
+- **那么** 查询 `table_foreignkey_metadata` 表获取外键数量
+- **并且** 与外键 JSON 文件中的总外键数比较
+- **并且** 返回导入完成状态
 
 #### 场景：检查中文含义推理阶段
 
@@ -126,6 +142,8 @@
   - `convert_node`：执行 Oracle 转 MySQL 命令
   - `fix_node`：执行 MySQL 脚本修复命令
   - `import_node`：执行 MySQL 导入命令
+  - `fk_extract_node`：执行外键信息提取命令
+  - `fk_import_node`：执行外键元数据导入命令
   - `config_node`：执行 Table Config 生成命令
   - `infer_node`：执行中文含义推理命令
   - `apply_node`：执行含义导入命令
@@ -170,6 +188,40 @@
 - **那么** 复用现有的 sql_import_log 表进行状态追踪
 - **并且** 支持 `--resume` 参数跳过已成功导入的文件
 - **并且** 支持 `--retry-failed` 参数只重试失败的文件
+
+---
+
+### 需求：外键提取与导入
+
+系统必须支持从 Oracle SQL 文件提取外键关系并导入到元数据表。
+
+#### 场景：外键信息提取
+
+- **当** 执行 `fk_extract` 阶段
+- **那么** 调用 `python -m AIagent.src.sql_import extract-foreignkey-all <source_dir> -o <foreignkey_dir>` 命令
+- **并且** 从 Oracle SQL 文件中提取外键约束信息
+- **并且** 生成 `*_foreignkeys.json` 文件到指定目录
+
+#### 场景：外键元数据导入
+
+- **当** 执行 `fk_import` 阶段
+- **那么** 调用 `python manage.py import_foreignkey_metadata <foreignkey_dir> --prefix <table_prefix>` 命令
+- **并且** 将外键 JSON 文件导入到 `table_foreignkey_metadata` 表
+- **并且** 自动为表名和约束名添加前缀
+
+#### 场景：外键导入配置
+
+- **当** 启动迁移任务时指定 `--foreignkey-dir <dir>` 参数
+- **那么** 使用指定目录存储外键 JSON 文件
+- **当** 未指定外键目录
+- **那么** 使用默认目录 `docs/hospital/foreignkey/`
+
+#### 场景：表名前缀配置
+
+- **当** 启动迁移任务时指定 `--table-prefix <prefix>` 参数
+- **那么** 在外键导入时为所有表名和约束名添加该前缀
+- **当** 未指定前缀
+- **那么** 使用默认前缀 `gzlry_`
 
 ---
 

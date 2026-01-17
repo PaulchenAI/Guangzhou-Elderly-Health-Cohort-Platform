@@ -11,7 +11,7 @@ Oracle 到 MySQL 迁移是一个多阶段、长时间运行的任务，需要：
 ## 目标 / 非目标
 
 **目标：**
-- 统一管理迁移流程的 6 个阶段
+- 统一管理迁移流程的 8 个阶段（含外键提取和导入）
 - 提供进度检查和状态报告
 - 支持通过 Claude Code CLI 执行命令
 - 集成现有的 sql_import 模块工具
@@ -27,28 +27,28 @@ Oracle 到 MySQL 迁移是一个多阶段、长时间运行的任务，需要：
 ### 架构决策：LangGraph 多阶段工作流
 
 ```
-                    ┌─────────────────────────────────────────────────────────────┐
-                    │              SQLMigrationAgent (Orchestrator)                │
-                    │  - 任务分解与调度                                              │
-                    │  - 进度检查与状态管理                                           │
-                    │  - 错误处理与重试决策                                           │
-                    └──────────────────────────────┬──────────────────────────────┘
-                                                   │
-        ┌──────────────┬──────────────┬───────────┼───────────┬──────────────┬──────────────┐
-        ▼              ▼              ▼           ▼           ▼              ▼              ▼
-   ┌─────────┐   ┌─────────┐   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐   ┌─────────┐
-   │  阶段1   │   │  阶段2   │   │  阶段3   │  │  阶段4   │  │  阶段5   │  │  阶段6   │   │ Claude  │
-   │ Oracle  │   │  MySQL  │   │  MySQL  │  │ Table   │  │  中文    │  │ 导入    │   │  Code   │
-   │ 转换    │   │  修复   │   │  导入   │  │ Config  │  │ 推理    │  │ Config  │   │  CLI    │
-   └─────────┘   └─────────┘   └─────────┘  └─────────┘  └─────────┘  └─────────┘   └─────────┘
+                         ┌─────────────────────────────────────────────────────────────┐
+                         │              SQLMigrationAgent (Orchestrator)                │
+                         │  - 任务分解与调度                                              │
+                         │  - 进度检查与状态管理                                           │
+                         │  - 错误处理与重试决策                                           │
+                         └──────────────────────────────┬──────────────────────────────┘
+                                                        │
+    ┌─────────┬─────────┬─────────┬─────────┬──────────┼──────────┬─────────┬─────────┬─────────┐
+    ▼         ▼         ▼         ▼         ▼          ▼          ▼         ▼         ▼         ▼
+┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐   ┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐
+│ 阶段1  ││ 阶段2  ││ 阶段3  ││ 阶段4  ││ 阶段5  │   │ 阶段6  ││ 阶段7  ││ 阶段8  ││ Chat  ││Claude │
+│Oracle ││ MySQL ││ MySQL ││ 外键   ││ 外键   │   │ Table ││ 中文   ││ 导入   ││ 节点  ││ Code  │
+│ 转换  ││ 修复  ││ 导入  ││ 提取   ││ 导入   │   │Config ││ 推理   ││Config ││       ││ CLI   │
+└───────┘└───────┘└───────┘└───────┘└───────┘   └───────┘└───────┘└───────┘└───────┘└───────┘
 ```
 
 ### 状态模型设计
 
 ```python
 class MigrationState(TypedDict):
-    # 阶段状态
-    current_stage: str  # convert | fix | import | config | infer | apply
+    # 阶段状态（8 个阶段）
+    current_stage: str  # convert | fix | import | fk_extract | fk_import | config | infer | apply
     stage_status: Dict[str, StageStatus]  # 每个阶段的状态
     
     # 进度追踪
@@ -59,8 +59,10 @@ class MigrationState(TypedDict):
     # 配置
     source_dir: str  # Oracle SQL 目录
     output_dir: str  # 转换后 MySQL SQL 目录
+    foreignkey_dir: str  # 外键 JSON 目录
     meaning_dir: str  # 中文含义 JSON 目录
     csv_context_file: Optional[str]  # 外部 CSV 上下文
+    table_prefix: str  # 表名前缀（默认 gzlry_）
     
     # 批次管理
     batch_id: str
@@ -74,15 +76,19 @@ class MigrationState(TypedDict):
 | 1 | convert | Oracle SQL 文件 | MySQL SQL 文件 | 转换后文件数量 |
 | 2 | fix | MySQL SQL 文件 | 修复后的 SQL | 语法验证通过 |
 | 3 | import | MySQL SQL 文件 | 数据库表 | sql_import_log 表状态 |
-| 4 | config | 数据库表 | TableQueryConfig | 配置记录数量 |
-| 5 | infer | SQL 文件 | *_meaning.json | JSON 文件数量 |
-| 6 | apply | meaning.json | 更新的 Config | 字段含义更新数 |
+| 4 | fk_extract | Oracle SQL 文件 | *_foreignkeys.json | 外键 JSON 文件数量 |
+| 5 | fk_import | 外键 JSON 文件 | table_foreignkey_metadata | 元数据表记录数 |
+| 6 | config | 数据库表 | TableQueryConfig | 配置记录数量 |
+| 7 | infer | SQL 文件 | *_meaning.json | JSON 文件数量 |
+| 8 | apply | meaning.json | 更新的 Config | 字段含义更新数 |
 
 ### Claude Code CLI 集成
 
 智能体通过 `ClaudeCodeClient` 执行命令，支持以下操作：
 - 执行 Python 模块命令（如 `python -m AIagent.src.sql_import convert`）
 - 执行 Django 管理命令（如 `python manage.py batch_create_table_configs`）
+- 执行外键提取命令（如 `python -m AIagent.src.sql_import extract-foreignkey-all`）
+- 执行外键导入命令（如 `python manage.py import_foreignkey_metadata`）
 - 读取文件内容验证结果
 - 搜索文件统计数量
 
