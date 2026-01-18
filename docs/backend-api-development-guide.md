@@ -482,7 +482,7 @@ class RootModel(models.Model):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="创建人",
+        help_text="创建人，关联 User 模型/表 core_user.id",
         related_name="%(app_label)s_%(class)s_created",
         db_index=True,
     )
@@ -500,7 +500,7 @@ class RootModel(models.Model):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="修改人",
+        help_text="修改人，关联 User 模型/表 core_user.id",
         related_name="%(app_label)s_%(class)s_modified",
     )
     
@@ -631,7 +631,7 @@ class User(RootModel):
         to="core.Role",
         db_constraint=False,
         blank=True,
-        help_text="关联的角色",
+        help_text="关联的角色，多对多关联 Role 模型/表 core_role，中间表 core_user_core_roles",
         related_name="core_users",
     )
     
@@ -642,7 +642,7 @@ class User(RootModel):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="所属部门",
+        help_text="所属部门，关联 Dept 模型/表 core_dept.id",
         related_name="core_users",
     )
     
@@ -693,6 +693,77 @@ class User(RootModel):
 | `EmailField` | 邮箱 | email |
 | `GenericIPAddressField` | IP 地址 | 登录 IP |
 
+### 5.4 关联字段描述规范（AI 友好）
+
+为了让 AI 能够从 OpenAPI Schema 中直接理解表之间的关联关系，所有 `ForeignKey` 和 `ManyToManyField` 字段的 `help_text` 必须包含**模型名**和**表名**的上下文信息。
+
+#### 5.4.1 描述格式
+
+| 字段类型 | 格式 | 示例 |
+|----------|------|------|
+| ForeignKey | `{业务含义}，关联 {模型名} 模型/表 {表名}.{字段}` | `所属部门，关联 Dept 模型/表 core_dept.id` |
+| 自引用 ForeignKey | `{业务含义}，自引用 {模型名} 模型/表 {表名}.{字段}` | `直属上级，自引用 User 模型/表 core_user.id` |
+| ManyToManyField | `{业务含义}，多对多关联 {模型名} 模型/表 {表名}，中间表 {中间表名}` | `关联的角色，多对多关联 Role 模型/表 core_role，中间表 core_user_core_roles` |
+
+#### 5.4.2 示例代码
+
+```python
+# ForeignKey 字段
+dept = models.ForeignKey(
+    to="core.Dept",
+    on_delete=models.SET_NULL,
+    db_constraint=False,
+    null=True,
+    blank=True,
+    help_text="所属部门，关联 Dept 模型/表 core_dept.id",  # ✅ 包含模型名和表名
+    related_name="core_users",
+)
+
+# 自引用 ForeignKey 字段
+manager = models.ForeignKey(
+    to="self",
+    on_delete=models.SET_NULL,
+    db_constraint=False,
+    null=True,
+    blank=True,
+    related_name="subordinates",
+    help_text="直属上级，自引用 User 模型/表 core_user.id",  # ✅ 自引用说明
+)
+
+# ManyToManyField 字段
+core_roles = models.ManyToManyField(
+    to="core.Role",
+    db_constraint=False,
+    blank=True,
+    help_text="关联的角色，多对多关联 Role 模型/表 core_role，中间表 core_user_core_roles",  # ✅ 包含中间表
+    related_name="core_users",
+)
+```
+
+#### 5.4.3 为什么需要这种格式
+
+1. **AI 理解跨表关联**：AI 可以通过描述中的模型名（如 `Dept`）在 OpenAPI Schema 中找到对应的 Schema 定义（如 `DeptSchemaOut`）
+2. **支持 SQL 生成**：AI 可以通过表名（如 `core_dept`）直接生成正确的 JOIN 语句
+3. **保持人类可读性**：业务含义在前，技术细节在后，不影响开发者阅读
+
+#### 5.4.4 辅助工具
+
+项目提供了 Django management command 来自动生成字段描述建议：
+
+```bash
+# 预览模式（显示所有建议）
+python manage.py enhance_field_descriptions --dry-run
+
+# 输出到 JSON 文件
+python manage.py enhance_field_descriptions --output suggestions.json
+
+# 仅扫描指定 app
+python manage.py enhance_field_descriptions --app-labels core
+
+# JSON 格式输出
+python manage.py enhance_field_descriptions --format json
+```
+
 ---
 
 ## 6. Schema 定义
@@ -713,10 +784,10 @@ from core.user.user_model import User
 
 class UserSchemaIn(ModelSchema):
     """用户输入模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id")
-    manager_id: Optional[str] = Field(None, alias="manager_id")
-    post: List[str] = Field(default=[], description="岗位ID列表")
-    core_roles: List[str] = Field(default=[], description="角色ID列表")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
+    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 User 模型/表 core_user.id）")
+    post: List[str] = Field(default=[], description="岗位ID列表（关联 Post 模型/表 core_post.id）")
+    core_roles: List[str] = Field(default=[], description="角色ID列表（关联 Role 模型/表 core_role.id）")
     
     @field_validator('username', check_fields=False)
     @classmethod
@@ -767,9 +838,9 @@ class UserSchemaPatch(Schema):
     gender: Optional[int] = None
     user_type: Optional[int] = None
     user_status: Optional[int] = None
-    dept_id: Optional[str] = None
-    post: Optional[List[str]] = None
-    core_roles: Optional[List[str]] = None
+    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
+    post: Optional[List[str]] = Field(None, description="岗位ID列表（关联 Post 模型/表 core_post.id）")
+    core_roles: Optional[List[str]] = Field(None, description="角色ID列表（关联 Role 模型/表 core_role.id）")
     
     @field_validator('username')
     @classmethod
@@ -890,6 +961,60 @@ class UserFilters(FuFilters):
     dept_id: Optional[list] = Field(None, q="dept_id__in", alias="dept_ids[]")
     mobile: Optional[str] = Field(None, q="mobile__icontains", alias="mobile")
 ```
+
+### 6.8 关联字段 description 规范（AI 友好）
+
+Schema 中的关联字段（如 `dept_id`、`manager_id`）必须在 `description` 中包含关联关系信息，让 AI 能够理解字段的关联目标。
+
+#### 6.8.1 描述格式
+
+| 字段类型 | 格式 | 示例 |
+|----------|------|------|
+| ForeignKey ID | `{业务含义}（关联 {模型名} 模型/表 {表名}.{字段}）` | `所属部门ID（关联 Dept 模型/表 core_dept.id）` |
+| 自引用 ID | `{业务含义}（自引用 {模型名} 模型/表 {表名}.{字段}）` | `直属上级ID（自引用 User 模型/表 core_user.id）` |
+| ID 列表 | `{业务含义}（关联 {模型名} 模型/表 {表名}.id）` | `角色ID列表（关联 Role 模型/表 core_role.id）` |
+
+#### 6.8.2 示例代码
+
+```python
+class UserSchemaIn(ModelSchema):
+    """用户输入模式"""
+    # ForeignKey 关联字段
+    dept_id: Optional[str] = Field(
+        None, 
+        alias="dept_id", 
+        description="所属部门ID（关联 Dept 模型/表 core_dept.id）"
+    )
+    
+    # 自引用字段
+    manager_id: Optional[str] = Field(
+        None, 
+        alias="manager_id", 
+        description="直属上级ID（自引用 User 模型/表 core_user.id）"
+    )
+    
+    # ManyToMany ID 列表
+    post: List[str] = Field(
+        default=[], 
+        description="岗位ID列表（关联 Post 模型/表 core_post.id）"
+    )
+    
+    core_roles: List[str] = Field(
+        default=[], 
+        description="角色ID列表（关联 Role 模型/表 core_role.id）"
+    )
+```
+
+#### 6.8.3 Model 与 Schema 描述对照
+
+| 位置 | 属性 | 格式 |
+|------|------|------|
+| Model (ForeignKey) | `help_text` | `{含义}，关联 {模型} 模型/表 {表}.{字段}` |
+| Schema (ID 字段) | `description` | `{含义}（关联 {模型} 模型/表 {表}.{字段}）` |
+
+**关键差异**：
+- Model 使用中文逗号 `，` 分隔
+- Schema 使用中文括号 `（）` 包裹关联信息
 
 ---
 
