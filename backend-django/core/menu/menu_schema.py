@@ -17,7 +17,7 @@ class MenuFilters(FuFilters):
     name: Optional[str] = Field(None, q="name__icontains", alias="name")
     title: Optional[str] = Field(None, q="title__icontains", alias="title")
     type: Optional[str] = Field(None, q="type", alias="type")
-    parent_id: Optional[str] = Field(None, q="parent_id", alias="parent_id")
+    parent_id: Optional[str] = Field(None, q="parent_id", alias="parent_id", description="父菜单ID（自引用 Menu 模型/表 core_menu.id）")
 
 
 class MenuSchemaIn(ModelSchema):

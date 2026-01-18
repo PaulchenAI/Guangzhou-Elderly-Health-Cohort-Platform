@@ -21,7 +21,7 @@ class PostFilters(FuFilters):
     post_type: Optional[int] = Field(None, q="post_type", alias="post_type")
     post_level: Optional[int] = Field(None, q="post_level", alias="post_level")
     status: Optional[bool] = Field(None, q="status", alias="status")
-    dept_id: Optional[str] = Field(None, q="dept_id", alias="dept_id")
+    dept_id: Optional[str] = Field(None, q="dept_id", alias="dept_id", description="部门ID（关联 Dept 模型/表 core_dept.id）")
     sys_create_datetime: Optional[datetime] = Field(
         None, q="sys_create_datetime__date", alias="sys_create_datetime"
     )

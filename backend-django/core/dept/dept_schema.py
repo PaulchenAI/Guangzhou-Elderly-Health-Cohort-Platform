@@ -18,7 +18,7 @@ class DeptFilters(FuFilters):
     code: Optional[str] = Field(None, q="code__icontains", alias="code")
     status: Optional[bool] = Field(None, q="status", alias="status")
     dept_type: Optional[str] = Field(None, q="dept_type", alias="dept_type")
-    parent_id: Optional[str] = Field(None, q="parent_id", alias="parent_id")
+    parent_id: Optional[str] = Field(None, q="parent_id", alias="parent_id", description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
     level: Optional[int] = Field(None, q="level", alias="level")
 
 

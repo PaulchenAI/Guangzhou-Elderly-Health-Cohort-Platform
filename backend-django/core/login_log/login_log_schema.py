@@ -16,7 +16,7 @@ from core.login_log.login_log_model import LoginLog
 class LoginLogFilters(FuFilters):
     """登录日志过滤器"""
     username: Optional[str] = Field(None, q="username__icontains", alias="username")
-    user_id: Optional[str] = Field(None, q="user_id", alias="user_id")
+    user_id: Optional[str] = Field(None, q="user_id", alias="user_id", description="用户ID（关联 User 模型/表 core_user.id）")
     status: Optional[int] = Field(None, q="status", alias="status")
     failure_reason: Optional[int] = Field(None, q="failure_reason", alias="failure_reason")
     login_ip: Optional[str] = Field(None, q="login_ip__icontains", alias="login_ip")

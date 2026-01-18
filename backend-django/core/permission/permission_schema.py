@@ -16,7 +16,7 @@ class PermissionFilters(FuFilters):
     """权限过滤器"""
     name: Optional[str] = Field(None, q="name__icontains", alias="name")
     code: Optional[str] = Field(None, q="code__icontains", alias="code")
-    menu_id: Optional[str] = Field(None, q="menu_id", alias="menu_id")
+    menu_id: Optional[str] = Field(None, q="menu_id", alias="menu_id", description="菜单ID（关联 Menu 模型/表 core_menu.id）")
     permission_type: Optional[int] = Field(None, q="permission_type", alias="permission_type")
     is_active: Optional[bool] = Field(None, q="is_active", alias="is_active")
 

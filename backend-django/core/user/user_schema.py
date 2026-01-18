@@ -19,7 +19,7 @@ class UserFilters(FuFilters):
     username: Optional[str] = Field(None, q="username__icontains", alias="username")
     user_status: Optional[int] = Field(None, q="user_status", alias="user_status")
     user_type: Optional[int] = Field(None, q="user_type", alias="user_type")
-    dept_id: Optional[list] = Field(None, q="dept_id__in", alias="dept_ids[]")
+    dept_id: Optional[list] = Field(None, q="dept_id__in", alias="dept_ids[]", description="部门ID列表（关联 Dept 模型/表 core_dept.id）")
     id: Optional[str] = Field(None, q="id", alias="id")
     mobile: Optional[str] = Field(None, q="mobile__icontains", alias="mobile")
     email: Optional[str] = Field(None, q="email__icontains", alias="email")

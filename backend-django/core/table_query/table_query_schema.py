@@ -26,7 +26,7 @@ class TableQueryConfigFilters(FuFilters):
 
 class TableQueryLogFilters(FuFilters):
     """表查询日志过滤器"""
-    user_id: Optional[str] = Field(None, q="user_id", alias="user_id")
+    user_id: Optional[str] = Field(None, q="user_id", alias="user_id", description="用户ID（关联 User 模型/表 core_user.id）")
     table_name: Optional[str] = Field(None, q="table_name__contains", alias="table_name")
     operation: Optional[str] = Field(None, alias="operation")
 

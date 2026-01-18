@@ -996,20 +996,18 @@ async def cmd_generate(args):
                         if output.get('sample'):
                             print(f"    样例数据: {output['sample']}")
                 
-                # 显示修正次数
-                if result.get('plan_fix_count', 0) > 0:
-                    print(f"\n  📝 执行计划修正次数: {result['plan_fix_count']}")
-                
+                # 显示验证结果
                 if result.get('steps_validated'):
                     print(f"\n  ✅ 所有步骤验证通过")
                 else:
-                    print(f"\n  ❌ 步骤验证失败（已尝试修正 {result.get('plan_fix_count', 0)} 次）")
+                    print(f"\n  ❌ 步骤验证失败")
                     if not result.get('script'):
                         print(f"  ⛔ 验证失败，未生成脚本")
             
-            # 显示结果
+            # 显示结果（合并迭代次数：plan_fix_count + iteration）
+            total_iterations = result.get('plan_fix_count', 0) + result['iterations']
             print("\n" + "=" * 60)
-            print(f"结果 (迭代次数: {result['iterations']})")
+            print(f"结果 (总迭代次数: {total_iterations})")
             print("=" * 60)
             # 文本格式输出
             if result['script']:
