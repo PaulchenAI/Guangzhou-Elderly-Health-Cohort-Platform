@@ -15,14 +15,14 @@ from core.dict.dict_model import Dict
 
 
 class DictItemFilters(FuFilters):
-    dict_id: Optional[str] = Field(None, alias="dict_id")
+    dict_id: Optional[str] = Field(None, alias="dict_id", description="所属字典ID（关联 core_dict.id）")
     label: Optional[str] = Field(None, q="label__contains", alias="label")
     value: Optional[str] = Field(None, q="value__contains", alias="value")
     status: Optional[bool] = Field(None, alias="status")
 
 
 class DictItemSchemaIn(ModelSchema):
-    dict_id: Optional[str]
+    dict_id: Optional[str] = Field(None, description="所属字典ID（关联 core_dict.id）")
 
     class Config:
         model = DictItem
@@ -41,7 +41,7 @@ class DictItemSchemaIn(ModelSchema):
 
 
 class DictItemSchemaOut(ModelSchema):
-    dict_id: Optional[str] = Field(None, alias="dict_id")
+    dict_id: Optional[str] = Field(None, alias="dict_id", description="所属字典ID（关联 core_dict.id）")
 
     class Config:
         model = DictItem

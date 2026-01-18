@@ -104,7 +104,7 @@ class LoginLogDeviceStatsOut(Schema):
 
 class LoginLogUserStatsOut(Schema):
     """用户登录统计"""
-    user_id: Optional[str] = Field(None, description="用户ID")
+    user_id: Optional[str] = Field(None, description="用户ID（关联 core_user.id）")
     username: str = Field(..., description="用户名")
     total_logins: int = Field(..., description="登录次数")
     failed_logins: int = Field(..., description="失败次数")
@@ -115,7 +115,7 @@ class LoginLogUserStatsOut(Schema):
 class LoginLogRecordIn(Schema):
     """记录登录日志输入"""
     username: str = Field(..., description="用户名")
-    user_id: Optional[str] = Field(None, description="用户ID")
+    user_id: Optional[str] = Field(None, description="用户ID（关联 core_user.id）")
     status: int = Field(..., description="登录状态：0-失败，1-成功")
     failure_reason: Optional[int] = Field(None, description="失败原因")
     failure_message: Optional[str] = Field(None, description="失败信息")

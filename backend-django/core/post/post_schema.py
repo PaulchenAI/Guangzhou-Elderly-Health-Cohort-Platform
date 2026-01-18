@@ -29,7 +29,7 @@ class PostFilters(FuFilters):
 
 class PostSchemaIn(ModelSchema):
     """岗位输入模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 core_dept.id）")
     
     @field_validator('code', check_fields=False)
     @classmethod
@@ -68,7 +68,7 @@ class PostSchemaPatch(Schema):
     code: Optional[str] = None
     post_type: Optional[int] = None
     post_level: Optional[int] = None
-    dept_id: Optional[str] = None
+    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 core_dept.id）")
     status: Optional[bool] = None
     description: Optional[str] = None
     
@@ -102,8 +102,8 @@ class PostSchemaPatch(Schema):
 
 class PostSchemaOut(ModelSchema):
     """岗位输出模式"""
-    dept_id: Optional[str] = None
-    dept_name: Optional[str] = Field(None, alias="dept.name")
+    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 core_dept.id）")
+    dept_name: Optional[str] = Field(None, alias="dept.name", description="所属部门名称")
     post_type_display: Optional[str] = None
     post_level_display: Optional[str] = None
     user_count: Optional[int] = None
@@ -190,14 +190,14 @@ class PostUserSchema(Schema):
 
 class PostUserIn(Schema):
     """岗位用户操作输入"""
-    post_id: str = Field(..., description="岗位ID")
-    user_ids: List[str] = Field(default=[], description="用户ID列表")
-    user_id: Optional[str] = Field(None, description="单个用户ID")
+    post_id: str = Field(..., description="岗位ID（关联 core_post.id）")
+    user_ids: List[str] = Field(default=[], description="用户ID列表（关联 core_user.id）")
+    user_id: Optional[str] = Field(None, description="单个用户ID（关联 core_user.id）")
 
 
 class PostUserFilter(FilterSchema):
     """岗位用户过滤器"""
-    post_id: str = Field(..., description="岗位ID")
+    post_id: str = Field(..., description="岗位ID（关联 core_post.id）")
     name: Optional[str] = Field(None, description="用户名称")
 
 

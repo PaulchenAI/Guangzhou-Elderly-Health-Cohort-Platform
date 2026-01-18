@@ -18,7 +18,7 @@ class FileManagerFilters(FuFilters):
     """文件管理过滤器"""
     name: str = Field(None, q="name__icontains", alias="name")
     type: str = Field(None, alias="type")
-    parent_id: UUID4 = Field(None, alias="parent_id")
+    parent_id: UUID4 = Field(None, alias="parent_id", description="父文件夹ID（自引用 core_file_manager.id）")
     storage_type: str = Field(None, alias="storage_type")
     file_ext: str = Field(None, alias="file_ext")
     is_public: bool = Field(None, alias="is_public")
@@ -26,7 +26,7 @@ class FileManagerFilters(FuFilters):
 
 class FileManagerSchemaIn(ModelSchema):
     """文件管理输入Schema"""
-    parent_id: UUID4 | None = Field(None, alias="parent_id")
+    parent_id: UUID4 | None = Field(None, alias="parent_id", description="父文件夹ID（自引用 core_file_manager.id）")
     
     class Config:
         model = FileManager
@@ -42,7 +42,7 @@ class FileManagerSimpleSchemaOut(Schema):
 
 class FileManagerSchemaOut(ModelSchema):
     """文件管理输出Schema"""
-    parent_id: UUID4 | None = Field(None)
+    parent_id: UUID4 | None = Field(None, description="父文件夹ID（自引用 core_file_manager.id）")
     id: UUID4 = Field(...)
     parent_name: str | None = Field(None)
     has_children: bool = Field(False)
@@ -82,7 +82,7 @@ class FileManagerSchemaOut(ModelSchema):
 class CreateFolderSchemaIn(Schema):
     """创建文件夹输入Schema"""
     name: str = Field(..., description="文件夹名称")
-    parent_id: UUID4 | None = Field(None, description="父文件夹ID")
+    parent_id: UUID4 | None = Field(None, description="父文件夹ID（自引用 core_file_manager.id）")
 
 
 class MoveItemsSchemaIn(Schema):
@@ -125,7 +125,7 @@ class InitChunkUploadSchemaIn(Schema):
     filename: str = Field(..., description="文件名")
     total_size: int = Field(..., description="文件总大小（字节）")
     chunk_size: int = Field(5 * 1024 * 1024, description="分块大小（字节），默认5MB")
-    parent_id: UUID4 | None = Field(None, description="父文件夹ID")
+    parent_id: UUID4 | None = Field(None, description="父文件夹ID（自引用 core_file_manager.id）")
     is_public: bool = Field(False, description="是否公开")
     file_hash: str | None = Field(None, description="文件MD5哈希，用于秒传")
 

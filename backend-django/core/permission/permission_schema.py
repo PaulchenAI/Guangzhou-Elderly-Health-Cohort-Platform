@@ -23,7 +23,7 @@ class PermissionFilters(FuFilters):
 
 class PermissionSchemaIn(ModelSchema):
     """权限输入模式"""
-    menu_id: str = Field(..., alias="menu_id", description="菜单ID")
+    menu_id: str = Field(..., alias="menu_id", description="菜单ID（关联 core_menu.id）")
     
     @field_validator('code', check_fields=False)
     @classmethod
@@ -60,7 +60,7 @@ class PermissionSchemaPatch(Schema):
     """权限部分更新模式（PATCH）"""
     name: Optional[str] = None
     code: Optional[str] = None
-    menu_id: Optional[str] = None
+    menu_id: Optional[str] = Field(None, description="菜单ID（关联 core_menu.id）")
     api_path: Optional[str] = None
     http_method: Optional[int] = None
     permission_type: Optional[int] = None
@@ -97,8 +97,8 @@ class PermissionSchemaPatch(Schema):
 
 class PermissionSchemaOut(ModelSchema):
     """权限输出模式"""
-    menu_id: Optional[str] = Field(None, alias="menu_id")
-    menu_name: Optional[str] = Field(None, alias="menu.name")
+    menu_id: Optional[str] = Field(None, alias="menu_id", description="菜单ID（关联 core_menu.id）")
+    menu_name: Optional[str] = Field(None, alias="menu.name", description="菜单名称")
     http_method_display: Optional[str] = None
     permission_type_display: Optional[str] = None
     
@@ -157,7 +157,7 @@ class PermissionRouteItem(Schema):
 
 class PermissionBatchCreateFromRoutesIn(Schema):
     """从路由批量创建权限输入"""
-    menu_id: str = Field(..., description="菜单ID")
+    menu_id: str = Field(..., description="菜单ID（关联 core_menu.id）")
     routes: List[PermissionRouteItem] = Field(..., description="要创建的权限列表")
 
 

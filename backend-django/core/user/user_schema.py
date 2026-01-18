@@ -104,14 +104,14 @@ class UserSchemaPatch(Schema):
     user_type: Optional[int] = None
     user_status: Optional[int] = None
     is_active: Optional[bool] = None
-    dept_id: Optional[str] = None
-    manager_id: Optional[str] = None
+    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 core_dept.id）")
+    manager_id: Optional[str] = Field(None, description="直属上级ID（自引用 core_user.id）")
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     employee_no: Optional[str] = None
     date_joined: Optional[date] = None
-    post: Optional[List[str]] = None
-    core_roles: Optional[List[str]] = None
+    post: Optional[List[str]] = Field(None, description="岗位ID列表（关联 core_post.id）")
+    core_roles: Optional[List[str]] = Field(None, description="角色ID列表（关联 core_role.id）")
     
     @field_validator('username')
     @classmethod
@@ -206,9 +206,9 @@ class UserSchemaOut(ModelSchema):
 
 class UserSchemaDetail(UserSchemaOut):
     """用户详情输出模式（包含更多信息）"""
-    role_ids: Optional[List[str]] = None
-    post_ids: Optional[List[str]] = None
-    permissions: Optional[List[str]] = None
+    role_ids: Optional[List[str]] = Field(None, description="角色ID列表（关联 core_role.id）")
+    post_ids: Optional[List[str]] = Field(None, description="岗位ID列表（关联 core_post.id）")
+    permissions: Optional[List[str]] = Field(None, description="权限编码列表")
     
     @staticmethod
     def resolve_role_ids(obj):
@@ -235,7 +235,7 @@ class UserSchemaSimple(Schema):
     avatar: Optional[str]
     email: Optional[str]
     mobile: Optional[str]
-    dept_name: Optional[str] = Field(None, alias="dept.name")
+    dept_name: Optional[str] = Field(None, alias="dept.name", description="所属部门名称")
 
 
 class UserSchemaAvatarOut(Schema):

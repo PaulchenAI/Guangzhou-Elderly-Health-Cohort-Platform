@@ -22,7 +22,7 @@ class MenuFilters(FuFilters):
 
 class MenuSchemaIn(ModelSchema):
     """菜单输入模式"""
-    parent_id: Optional[str] = Field(None, alias="parent_id")
+    parent_id: Optional[str] = Field(None, alias="parent_id", description="父菜单ID（自引用 core_menu.id）")
     
     @field_validator('name', check_fields=False)
     @classmethod
@@ -74,7 +74,7 @@ class MenuSchemaPatch(Schema):
     redirect: Optional[str] = None
     icon: Optional[str] = None
     type: Optional[str] = None
-    parent_id: Optional[str] = None
+    parent_id: Optional[str] = Field(None, description="父菜单ID（自引用 core_menu.id）")
     order: Optional[int] = None
     status: Optional[int] = None
     is_link: Optional[bool] = None
@@ -125,7 +125,7 @@ class MenuSchemaPatch(Schema):
 
 class MenuSchemaOut(ModelSchema):
     """菜单输出模式"""
-    parent_id: Optional[str] = Field(None, alias="parent_id")
+    parent_id: Optional[str] = Field(None, alias="parent_id", description="父菜单ID（自引用 core_menu.id）")
     level: Optional[int] = None
     child_count: Optional[int] = None
     full_path: Optional[str] = None
@@ -157,7 +157,7 @@ class MenuSchemaTree(Schema):
     title: Optional[str]
     path: str
     type: str
-    parent_id: Optional[str]
+    parent_id: Optional[str] = Field(None, description="父菜单ID（自引用 core_menu.id）")
     icon: Optional[str]
     order: int
     level: int
@@ -172,7 +172,7 @@ class MenuSchemaSimple(Schema):
     title: Optional[str]
     path: str
     type: str
-    parent_id: Optional[str]
+    parent_id: Optional[str] = Field(None, description="父菜单ID（自引用 core_menu.id）")
     level: int
 
 
