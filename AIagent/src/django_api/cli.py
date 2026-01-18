@@ -16,6 +16,7 @@ Django API 命令行工具
 
 import argparse
 import asyncio
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -27,6 +28,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.django_api.client import OpenAPIAwareClient
 from src.django_api.models import DjangoAPIConfig, APIEndpoint
 from src.django_api.output_format import OutputFormat
+from src.django_api.execution_history import (
+    ExecutionRecord, 
+    ExecutionHistoryStorage, 
+    normalize_intent,
+    ErrorType
+)
 from src.utils.config_models import Settings
 
 
@@ -873,8 +880,6 @@ async def cmd_generate(args):
             debug_mode=args.debug,
             auto_fix=auto_fix_enabled,
             max_iterations=args.max_iter if hasattr(args, 'max_iter') else 10,
-            save_history=not no_save,
-            output_format=output_format,
         )
         
         # auto_fix 默认启用，同时控制：
@@ -890,9 +895,59 @@ async def cmd_generate(args):
         result = await generator.generate(
             intent, 
             verbose=args.verbose,
-            output_format=output_format,
-            no_save=no_save,
         )
+        
+        # 保存执行历史记录（除非禁用）
+        if not no_save:
+            try:
+                # 归一化意图
+                normalized = normalize_intent(intent)
+                
+                # 提取使用的 API 列表
+                apis_used = []
+                execution_plan = result.get('execution_plan', {})
+                steps = execution_plan.get('steps', [])
+                for step in steps:
+                    if step and isinstance(step, dict):
+                        api = step.get('api', {})
+                        if api and isinstance(api, dict):
+                            path = api.get('path', '')
+                            if path:
+                                apis_used.append(path)
+                
+                # 确定状态和错误信息
+                if result.get('success') and result.get('validation_passed', True):
+                    status = "success"
+                    error_message = ""
+                    error_type = ""
+                else:
+                    status = "failed"
+                    error_message = result.get('validation_feedback', '') or result.get('execution_error', '')
+                    error_type = ErrorType.SCRIPT_ERROR.value if '执行' in error_message or '脚本' in error_message else ErrorType.UNKNOWN.value
+                
+                # 创建执行记录
+                record = ExecutionRecord(
+                    id=hashlib.md5(intent.encode('utf-8')).hexdigest()[:8],
+                    intent=intent,
+                    normalized_intent=normalized.core_intent,
+                    intent_params=normalized.to_dict(),
+                    status=status,
+                    apis_used=apis_used,
+                    script_content=result.get('script', ''),
+                    execution_output=result.get('output', ''),
+                    error_message=error_message,
+                    error_type=error_type,
+                )
+                
+                # 保存记录
+                storage = ExecutionHistoryStorage()
+                saved_path = storage.save_execution(record)
+                if args.verbose:
+                    info_print(f"📝 执行记录已保存: {saved_path}")
+            except Exception as save_error:
+                # 保存失败不应影响主流程
+                if args.verbose:
+                    info_print(f"⚠️ 保存执行记录失败: {save_error}")
         
         # JSON 格式：输出带分隔符的 JSON
         if output_format == OutputFormat.JSON:
@@ -906,13 +961,13 @@ async def cmd_generate(args):
                 "output": result.get('output', ''),
                 "script": result.get('script', ''),
             }
-            # 添加格式化的数据输出
-            formatted = generator.format_output(result, output_format)
-            if formatted:
+            # 添加格式化的数据输出（暂时使用原始输出）
+            # TODO: 实现 format_output 方法
+            if result.get('output'):
                 try:
-                    json_result["formatted_data"] = json.loads(formatted)
+                    json_result["formatted_data"] = json.loads(result['output'])
                 except:
-                    json_result["formatted_data"] = formatted
+                    json_result["formatted_data"] = result['output']
             
             # 完成信息输出到 stderr
             info_print("\n✅ 执行完成")
@@ -1033,9 +1088,10 @@ async def cmd_generate(args):
             if result['output']:
                 print("\n📤 执行输出:")
                 print("-" * 40)
-                # 使用格式化输出
-                formatted = generator.format_output(result, OutputFormat.TEXT)
-                print(formatted)
+                # 使用原始输出（暂时不使用格式化输出）
+                # TODO: 实现 format_output 方法
+                if result.get('output'):
+                    print(result['output'])
             
             # 显示过程消息
             # 当有迭代修正时（plan_fix_count > 0 或 iterations > 1）始终显示
@@ -1082,7 +1138,7 @@ async def cmd_generate(args):
             
             if not args.execute:
                 print(f"\n提示: 使用 -x 参数执行脚本，使用 -d 启用调试模式")
-                print(f"      使用 --auto-fix 启用自动迭代修正")
+                print(f"      使用 --no-auto-fix 禁用自动迭代修正（默认启用）")
                 print(f"      使用 --json 输出 JSON 格式结果")
         
     except Exception as e:
@@ -1112,7 +1168,7 @@ def main():
   %(prog)s call "查询问卷类型为个人信息登记表的数据" -s -v  # 智能模式+详细输出
   %(prog)s generate "查询户外活动问卷数据并导出"  # 🆕 生成多步骤脚本
   %(prog)s generate "获取所有用户及其角色" -x -d  # 执行 + 调试模式
-  %(prog)s generate "查询问卷数据" -x --auto-fix  # 执行 + 自动迭代修正
+  %(prog)s generate "查询问卷数据" -x  # 执行（自动迭代修正默认启用）
   %(prog)s summary -o api_summary.md     # 导出 AI 摘要
   %(prog)s list-tags                     # 列出所有 Tag
   %(prog)s list-endpoints --tag Core-User  # 列出指定 Tag 的端点
@@ -1172,7 +1228,7 @@ def main():
     parser_generate.add_argument('-o', '--output', help='保存脚本到文件')
     parser_generate.add_argument('-x', '--execute', action='store_true', help='生成后立即执行')
     parser_generate.add_argument('-d', '--debug', action='store_true', help='启用调试模式（添加详细输出）')
-    parser_generate.add_argument('--auto-fix', action='store_true', default=True, help='执行失败时自动迭代修正（默认启用）')
+    parser_generate.add_argument('--auto-fix', action='store_const', const=True, default=True, help='执行失败时自动迭代修正（默认启用）')
     parser_generate.add_argument('--no-auto-fix', action='store_true', help='禁用自动迭代修正')
     parser_generate.add_argument('--max-iter', type=int, default=10, help='最大迭代次数（默认: 10）')
     parser_generate.add_argument('-v', '--verbose', action='store_true', help='显示详细信息')
