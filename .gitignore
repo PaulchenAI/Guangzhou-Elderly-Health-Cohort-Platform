@@ -70,3 +70,4 @@ __pycache__
 /docs/survey/*
 backend-django/.env
 *.zip
+data/*
