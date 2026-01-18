@@ -44,7 +44,7 @@ class Permission(RootModel):
         to="core.Menu",
         db_constraint=False,
         on_delete=models.CASCADE,
-        help_text="关联菜单，关联 core_menu.id",
+        help_text="关联菜单，关联 Menu 模型/表 core_menu.id",
         db_index=True,  # 添加索引
     )
     

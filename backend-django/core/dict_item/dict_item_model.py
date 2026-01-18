@@ -18,7 +18,7 @@ class DictItem(RootModel):
     value = models.CharField(max_length=100, blank=True, null=True, help_text="实际值")
     status = models.BooleanField(default=True, blank=True, help_text="状态")
     dict = models.ForeignKey(
-        to="Dict", db_constraint=False, on_delete=models.CASCADE, help_text="所属字典，关联 core_dict.id"
+        to="Dict", db_constraint=False, on_delete=models.CASCADE, help_text="所属字典，关联 Dict 模型/表 core_dict.id"
     )
     remark = models.CharField(max_length=2000, blank=True, null=True, help_text="备注")
 

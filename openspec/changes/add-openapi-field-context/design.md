@@ -23,11 +23,12 @@
 
 ### 决策 1：字段描述格式
 
-**选择**：使用结构化的描述格式 `{业务含义}，关联 {目标表}.{目标字段}`
+**选择**：使用结构化的描述格式 `{业务含义}，关联 {模型名} 模型/表 {目标表}.{目标字段}`
 
 **理由**：
 - 保留原有的业务含义描述，不影响人类阅读
 - 添加明确的关联关系信息，便于 AI 解析
+- 同时包含模型名和表名，让 AI 能够在 OpenAPI Schema 和数据库之间建立映射
 - 使用中文逗号分隔，与现有描述风格一致
 
 **示例**：
@@ -35,11 +36,11 @@
 # Model 字段
 dept = models.ForeignKey(
     to="core.Dept",
-    help_text="所属部门，关联 core_dept.id",
+    help_text="所属部门，关联 Dept 模型/表 core_dept.id",
 )
 
 # Schema 字段
-dept_id: Optional[str] = Field(None, description="所属部门ID（关联 core_dept.id）")
+dept_id: Optional[str] = Field(None, description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
 ```
 
 ### 决策 2：Management Command 设计
@@ -73,7 +74,7 @@ Options:
 **理由**：
 - ForeignKey 是最常见的关联类型
 - 优先处理核心业务模块（core/*）
-- 自引用字段需要特殊说明（如"自引用 core_dept.id"）
+- 自引用字段需要特殊说明（如"自引用 Dept 模型/表 core_dept.id"）
 
 ## 风险 / 权衡
 

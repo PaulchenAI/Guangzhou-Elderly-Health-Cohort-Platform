@@ -24,8 +24,8 @@ class DeptFilters(FuFilters):
 
 class DeptSchemaIn(ModelSchema):
     """部门输入模式"""
-    parent_id: Optional[str] = Field(None, alias="parent_id", description="父部门ID（自引用 core_dept.id）")
-    lead_id: Optional[str] = Field(None, alias="lead_id", description="部门领导ID（关联 core_user.id）")
+    parent_id: Optional[str] = Field(None, alias="parent_id", description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
+    lead_id: Optional[str] = Field(None, alias="lead_id", description="部门领导ID（关联 User 模型/表 core_user.id）")
     
     @field_validator('code', check_fields=False)
     @classmethod
@@ -62,8 +62,8 @@ class DeptSchemaPatch(Schema):
     name: Optional[str] = None
     code: Optional[str] = None
     dept_type: Optional[str] = None
-    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 core_dept.id）")
-    lead_id: Optional[str] = Field(None, description="部门领导ID（关联 core_user.id）")
+    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
+    lead_id: Optional[str] = Field(None, description="部门领导ID（关联 User 模型/表 core_user.id）")
     sort: Optional[int] = None
     status: Optional[bool] = None
     phone: Optional[str] = None
@@ -100,8 +100,8 @@ class DeptSchemaPatch(Schema):
 
 class DeptSchemaOut(ModelSchema):
     """部门输出模式"""
-    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 core_dept.id）")
-    lead_id: Optional[str] = Field(None, description="部门领导ID（关联 core_user.id）")
+    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
+    lead_id: Optional[str] = Field(None, description="部门领导ID（关联 User 模型/表 core_user.id）")
     lead_name: Optional[str] = Field(None, alias="lead.name", description="部门领导姓名")
     dept_type_display: Optional[str] = None
     child_count: Optional[int] = None
@@ -148,7 +148,7 @@ class DeptSchemaTree(Schema):
     id: str
     name: str
     code: Optional[str]
-    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 core_dept.id）")
+    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
     dept_type: str
     status: bool
     child_count: int
@@ -162,7 +162,7 @@ class DeptSchemaSimple(Schema):
     id: str
     name: str
     code: Optional[str]
-    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 core_dept.id）")
+    parent_id: Optional[str] = Field(None, description="父部门ID（自引用 Dept 模型/表 core_dept.id）")
     level: int
     status: bool
 
@@ -225,8 +225,8 @@ class DeptUserSchema(Schema):
 
 class DeptUserIn(Schema):
     """部门用户操作输入"""
-    user_ids: List[str] = Field(default=[], description="用户ID列表（关联 core_user.id）")
-    user_id: Optional[str] = Field(None, description="单个用户ID（关联 core_user.id）")
+    user_ids: List[str] = Field(default=[], description="用户ID列表（关联 User 模型/表 core_user.id）")
+    user_id: Optional[str] = Field(None, description="单个用户ID（关联 User 模型/表 core_user.id）")
 
 
 class DeptUserFilter(Schema):

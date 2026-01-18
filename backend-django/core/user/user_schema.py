@@ -27,10 +27,10 @@ class UserFilters(FuFilters):
 
 class UserSchemaIn(ModelSchema):
     """用户输入模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 core_dept.id）")
-    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 core_user.id）")
-    post: List[str] = Field(default=[], description="岗位ID列表（关联 core_post.id）")
-    core_roles: List[str] = Field(default=[], description="角色ID列表（关联 core_role.id）")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
+    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 User 模型/表 core_user.id）")
+    post: List[str] = Field(default=[], description="岗位ID列表（关联 Post 模型/表 core_post.id）")
+    core_roles: List[str] = Field(default=[], description="角色ID列表（关联 Role 模型/表 core_role.id）")
     
     @field_validator('username', check_fields=False)
     @classmethod
@@ -104,14 +104,14 @@ class UserSchemaPatch(Schema):
     user_type: Optional[int] = None
     user_status: Optional[int] = None
     is_active: Optional[bool] = None
-    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 core_dept.id）")
-    manager_id: Optional[str] = Field(None, description="直属上级ID（自引用 core_user.id）")
+    dept_id: Optional[str] = Field(None, description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
+    manager_id: Optional[str] = Field(None, description="直属上级ID（自引用 User 模型/表 core_user.id）")
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     employee_no: Optional[str] = None
     date_joined: Optional[date] = None
-    post: Optional[List[str]] = Field(None, description="岗位ID列表（关联 core_post.id）")
-    core_roles: Optional[List[str]] = Field(None, description="角色ID列表（关联 core_role.id）")
+    post: Optional[List[str]] = Field(None, description="岗位ID列表（关联 Post 模型/表 core_post.id）")
+    core_roles: Optional[List[str]] = Field(None, description="角色ID列表（关联 Role 模型/表 core_role.id）")
     
     @field_validator('username')
     @classmethod
@@ -164,9 +164,9 @@ class UserSchemaPatch(Schema):
 
 class UserSchemaOut(ModelSchema):
     """用户输出模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 core_dept.id）")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 Dept 模型/表 core_dept.id）")
     dept_name: Optional[str] = Field(None, alias="dept.name", description="所属部门名称")
-    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 core_user.id）")
+    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 User 模型/表 core_user.id）")
     manager_name: Optional[str] = Field(None, alias="manager.name", description="直属上级姓名")
     user_type_display: Optional[str] = None
     user_status_display: Optional[str] = None
@@ -206,8 +206,8 @@ class UserSchemaOut(ModelSchema):
 
 class UserSchemaDetail(UserSchemaOut):
     """用户详情输出模式（包含更多信息）"""
-    role_ids: Optional[List[str]] = Field(None, description="角色ID列表（关联 core_role.id）")
-    post_ids: Optional[List[str]] = Field(None, description="岗位ID列表（关联 core_post.id）")
+    role_ids: Optional[List[str]] = Field(None, description="角色ID列表（关联 Role 模型/表 core_role.id）")
+    post_ids: Optional[List[str]] = Field(None, description="岗位ID列表（关联 Post 模型/表 core_post.id）")
     permissions: Optional[List[str]] = Field(None, description="权限编码列表")
     
     @staticmethod

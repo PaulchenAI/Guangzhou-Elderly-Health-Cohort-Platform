@@ -219,6 +219,7 @@ class Command(BaseCommand):
         # 生成建议的 help_text
         suggested_help_text = self._generate_fk_help_text(
             current_help_text, 
+            related_model.__name__,  # 模型名
             target_table, 
             target_field, 
             is_self_reference
@@ -278,6 +279,7 @@ class Command(BaseCommand):
         # 生成建议的 help_text
         suggested_help_text = self._generate_m2m_help_text(
             current_help_text, 
+            related_model.__name__,  # 模型名
             target_table, 
             through_table,
             is_self_reference
@@ -316,6 +318,7 @@ class Command(BaseCommand):
     def _generate_fk_help_text(
         self, 
         current: str, 
+        model_name: str,
         target_table: str, 
         target_field: str,
         is_self_reference: bool
@@ -327,17 +330,18 @@ class Command(BaseCommand):
         if not business_meaning:
             business_meaning = "关联字段"
         
-        # 生成关联信息
+        # 生成关联信息（包含模型名和表名）
         if is_self_reference:
-            relation_info = f"自引用 {target_table}.{target_field}"
+            relation_info = f"自引用 {model_name} 模型/表 {target_table}.{target_field}"
         else:
-            relation_info = f"关联 {target_table}.{target_field}"
+            relation_info = f"关联 {model_name} 模型/表 {target_table}.{target_field}"
         
         return f"{business_meaning}，{relation_info}"
     
     def _generate_m2m_help_text(
         self, 
         current: str, 
+        model_name: str,
         target_table: str, 
         through_table: Optional[str],
         is_self_reference: bool
@@ -349,11 +353,11 @@ class Command(BaseCommand):
         if not business_meaning:
             business_meaning = "多对多关联"
         
-        # 生成关联信息
+        # 生成关联信息（包含模型名和表名）
         if through_table:
-            relation_info = f"多对多关联 {target_table}，中间表 {through_table}"
+            relation_info = f"多对多关联 {model_name} 模型/表 {target_table}，中间表 {through_table}"
         else:
-            relation_info = f"多对多关联 {target_table}"
+            relation_info = f"多对多关联 {model_name} 模型/表 {target_table}"
         
         if is_self_reference:
             relation_info = f"自引用，{relation_info}"
@@ -382,8 +386,8 @@ class Command(BaseCommand):
         markers = ['关联', '自引用', '多对多关联']
         has_marker = any(marker in help_text for marker in markers)
         
-        # 检查是否包含目标表名
-        has_target = target_table in help_text
+        # 检查是否包含目标表名或模型名（新格式包含"模型/表"）
+        has_target = target_table in help_text or '模型/表' in help_text
         
         return has_marker and has_target
     

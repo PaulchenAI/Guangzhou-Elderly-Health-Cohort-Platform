@@ -100,7 +100,7 @@ class Role(RootModel):
         to="core.Dept",
         db_constraint=False,
         blank=True,
-        help_text="关联的部门组，多对多关联 core_dept，中间表 core_role_dept",
+        help_text="关联的部门组，多对多关联 Dept 模型/表 core_dept，中间表 core_role_dept",
         related_name="core_roles",
     )
 
@@ -109,7 +109,7 @@ class Role(RootModel):
         to="core.Menu",
         db_constraint=False,
         blank=True,
-        help_text="关联的菜单，多对多关联 core_menu，中间表 core_role_menu",
+        help_text="关联的菜单，多对多关联 Menu 模型/表 core_menu，中间表 core_role_menu",
         related_name="core_roles",
     )
     
@@ -118,7 +118,7 @@ class Role(RootModel):
         to="core.Permission",
         db_constraint=False,
         blank=True,
-        help_text="关联的权限，多对多关联 core_permission，中间表 core_role_permission",
+        help_text="关联的权限，多对多关联 Permission 模型/表 core_permission，中间表 core_role_permission",
         related_name="roles",
     )
     

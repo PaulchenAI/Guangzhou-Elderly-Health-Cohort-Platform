@@ -162,9 +162,9 @@ class RoleSchemaOut(ModelSchema):
 
 class RoleSchemaDetail(RoleSchemaOut):
     """角色详情输出模式（包含关联数据）"""
-    menu_ids: Optional[List[str]] = Field(None, description="菜单ID列表（关联 core_menu.id）")
-    permission_ids: Optional[List[str]] = Field(None, description="权限ID列表（关联 core_permission.id）")
-    dept_ids: Optional[List[str]] = Field(None, description="部门ID列表（关联 core_dept.id）")
+    menu_ids: Optional[List[str]] = Field(None, description="菜单ID列表（关联 Menu 模型/表 core_menu.id）")
+    permission_ids: Optional[List[str]] = Field(None, description="权限ID列表（关联 Permission 模型/表 core_permission.id）")
+    dept_ids: Optional[List[str]] = Field(None, description="部门ID列表（关联 Dept 模型/表 core_dept.id）")
     
     @staticmethod
     def resolve_menu_ids(obj):
@@ -219,15 +219,15 @@ class RoleUserSchema(Schema):
 
 class RoleUserFilter(FilterSchema):
     """角色用户过滤器"""
-    role_id: str = Field(..., description="角色ID（关联 core_role.id）")
+    role_id: str = Field(..., description="角色ID（关联 Role 模型/表 core_role.id）")
     name: Optional[str] = Field(None, description="用户名称")
 
 
 class RoleUserIn(Schema):
     """角色用户操作输入"""
-    role_id: str = Field(..., description="角色ID（关联 core_role.id）")
-    user_ids: List[str] = Field(default=[], description="用户ID列表（关联 core_user.id）")
-    user_id: Optional[str] = Field(None, description="单个用户ID（关联 core_user.id）")
+    role_id: str = Field(..., description="角色ID（关联 Role 模型/表 core_role.id）")
+    user_ids: List[str] = Field(default=[], description="用户ID列表（关联 User 模型/表 core_user.id）")
+    user_id: Optional[str] = Field(None, description="单个用户ID（关联 User 模型/表 core_user.id）")
 
 
 class RoleBatchUpdateStatusIn(Schema):
@@ -261,18 +261,18 @@ class RoleSimpleOut(Schema):
 
 class RolePermissionUpdateIn(Schema):
     """更新角色权限输入"""
-    permission_ids: List[str] = Field(..., description="权限ID列表（关联 core_permission.id）")
+    permission_ids: List[str] = Field(..., description="权限ID列表（关联 Permission 模型/表 core_permission.id）")
 
 
 class RoleMenuUpdateIn(Schema):
     """更新角色菜单输入"""
-    menu_ids: List[str] = Field(..., description="菜单ID列表（关联 core_menu.id）")
+    menu_ids: List[str] = Field(..., description="菜单ID列表（关联 Menu 模型/表 core_menu.id）")
 
 
 class RoleMenuPermissionUpdateIn(Schema):
     """更新角色菜单和权限输入"""
-    menu_ids: List[str] = Field(..., description="菜单ID列表（关联 core_menu.id）")
-    permission_ids: List[str] = Field(..., description="权限ID列表（关联 core_permission.id）")
+    menu_ids: List[str] = Field(..., description="菜单ID列表（关联 Menu 模型/表 core_menu.id）")
+    permission_ids: List[str] = Field(..., description="权限ID列表（关联 Permission 模型/表 core_permission.id）")
 
 
 class MenuItemOut(Schema):
@@ -280,7 +280,7 @@ class MenuItemOut(Schema):
     id: str
     name: str
     label: str
-    parent_id: Optional[str] = Field(None, description="父菜单ID（自引用 core_menu.id）")
+    parent_id: Optional[str] = Field(None, description="父菜单ID（自引用 Menu 模型/表 core_menu.id）")
     checked: bool
     permission_count: int = 0
     children: Optional[List['MenuItemOut']] = []
@@ -305,6 +305,6 @@ class PermissionItemOut(Schema):
 
 class MenuPermissionsOut(Schema):
     """菜单权限列表输出"""
-    menu_id: str = Field(..., description="菜单ID（关联 core_menu.id）")
+    menu_id: str = Field(..., description="菜单ID（关联 Menu 模型/表 core_menu.id）")
     permissions: List[PermissionItemOut]
 

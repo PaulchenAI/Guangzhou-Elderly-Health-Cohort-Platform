@@ -7,22 +7,22 @@
 #### 场景：标准 ForeignKey 字段描述
 
 - **当** 定义 ForeignKey 字段
-- **那么** `help_text` 必须包含业务含义和关联关系
-- **并且** 格式为 `{业务含义}，关联 {目标表db_table}.{目标字段}`
-- **例如** `help_text="所属部门，关联 core_dept.id"`
+- **那么** `help_text` 必须包含业务含义、模型名和关联关系
+- **并且** 格式为 `{业务含义}，关联 {模型名} 模型/表 {目标表db_table}.{目标字段}`
+- **例如** `help_text="所属部门，关联 Dept 模型/表 core_dept.id"`
 
 #### 场景：自引用 ForeignKey 字段描述
 
 - **当** 定义自引用 ForeignKey 字段（如 parent、manager）
 - **那么** `help_text` 必须说明是自引用关系
-- **并且** 格式为 `{业务含义}，自引用 {当前表db_table}.{目标字段}`
-- **例如** `help_text="上级部门，自引用 core_dept.id"`
+- **并且** 格式为 `{业务含义}，自引用 {模型名} 模型/表 {当前表db_table}.{目标字段}`
+- **例如** `help_text="上级部门，自引用 Dept 模型/表 core_dept.id"`
 
 #### 场景：可空 ForeignKey 字段描述
 
 - **当** 定义可空的 ForeignKey 字段（null=True）
 - **那么** `help_text` 应说明可空情况
-- **例如** `help_text="所属部门（可空），关联 core_dept.id"`
+- **例如** `help_text="所属部门（可空），关联 Dept 模型/表 core_dept.id"`
 
 ---
 
@@ -33,16 +33,16 @@
 #### 场景：Schema 关联字段描述格式
 
 - **当** 定义 Schema 中的关联字段
-- **那么** `description` 必须包含业务含义和关联关系
-- **并且** 格式为 `{业务含义}（关联 {目标表db_table}.{目标字段}）`
-- **例如** `description="所属部门ID（关联 core_dept.id）"`
+- **那么** `description` 必须包含业务含义、模型名和关联关系
+- **并且** 格式为 `{业务含义}（关联 {模型名} 模型/表 {目标表db_table}.{目标字段}）`
+- **例如** `description="所属部门ID（关联 Dept 模型/表 core_dept.id）"`
 
 #### 场景：Schema 自引用字段描述格式
 
 - **当** 定义 Schema 中的自引用字段
 - **那么** `description` 必须说明是自引用关系
-- **并且** 格式为 `{业务含义}（自引用 {当前表db_table}.{目标字段}）`
-- **例如** `description="上级部门ID（自引用 core_dept.id）"`
+- **并且** 格式为 `{业务含义}（自引用 {模型名} 模型/表 {当前表db_table}.{目标字段}）`
+- **例如** `description="上级部门ID（自引用 Dept 模型/表 core_dept.id）"`
 
 ---
 
@@ -92,7 +92,7 @@
       "field": "dept",
       "field_type": "ForeignKey",
       "current_help_text": "所属部门",
-      "suggested_help_text": "所属部门，关联 core_dept.id",
+      "suggested_help_text": "所属部门，关联 Dept 模型/表 core_dept.id",
       "target_model": "core.Dept",
       "target_table": "core_dept",
       "target_field": "id"
@@ -115,12 +115,12 @@ ManyToManyField 字段的 `help_text` 必须说明关联的目标表和中间表
 #### 场景：标准 ManyToMany 字段描述
 
 - **当** 定义 ManyToManyField 字段
-- **那么** `help_text` 必须包含业务含义和关联关系
-- **并且** 格式为 `{业务含义}，多对多关联 {目标表db_table}，中间表 {中间表db_table}`
-- **例如** `help_text="关联的角色，多对多关联 core_role，中间表 core_user_core_roles"`
+- **那么** `help_text` 必须包含业务含义、模型名和关联关系
+- **并且** 格式为 `{业务含义}，多对多关联 {模型名} 模型/表 {目标表db_table}，中间表 {中间表db_table}`
+- **例如** `help_text="关联的角色，多对多关联 Role 模型/表 core_role，中间表 core_user_core_roles"`
 
 #### 场景：自定义中间表的 ManyToMany 字段描述
 
 - **当** 定义使用 `through` 参数的 ManyToManyField 字段
 - **那么** `help_text` 必须说明自定义中间表
-- **例如** `help_text="关联的权限，多对多关联 core_permission，中间表 core_role_permissions"`
+- **例如** `help_text="关联的权限，多对多关联 Permission 模型/表 core_permission，中间表 core_role_permissions"`
