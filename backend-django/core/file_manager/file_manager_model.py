@@ -26,7 +26,7 @@ class FileManager(RootModel):
     
     name = models.CharField(max_length=255, help_text="文件/文件夹名称")
     type = models.CharField(max_length=10, choices=FILE_TYPE_CHOICES, default='file', help_text="类型")
-    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', help_text="父文件夹")
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', help_text="父文件夹，自引用 core_file_manager.id")
     path = models.TextField(help_text="文件路径")
     size = models.BigIntegerField(default=0, help_text="文件大小(字节)")
     file_ext = models.CharField(max_length=50, null=True, blank=True, help_text="文件扩展名")

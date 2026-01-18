@@ -519,18 +519,44 @@ python -m AIagent.src.django_api generate "查询表数据查询中的老人档�
 **工作流程**：
 
 ```
-用户意图 → 计划生成 → 步骤验证 → (计划修正?) → 脚本生成 → 执行 → 验证 → (调试迭代?)
+用户意图 → 历史检索 → 计划生成 → 步骤验证 → (计划修正?) → 脚本生成 → 执行 → 验证 → (调试迭代?) → 保存记录
 ```
 
 **核心特性**：
 
-1. **智能意图拆解**：LLM 分析用户意图，生成包含登录、API 调用等步骤的执行计划
-2. **步骤验证**：在生成脚本前，直接调用 API 验证每个步骤的正确性
+1. **历史指令 RAG 检索**（新增）：
+   - 强制优先检索历史相似指令
+   - 精确匹配（≥0.95）：直接复用脚本，自动替换参数
+   - 高度相似（0.80-0.95）：作为主要参考模板
+   - 一般相似（0.60-0.80）：辅助参考思路
+   - 失败记录学习：避免重复同样的错误
+
+2. **执行记录持久化**（新增）：
+   - 成功和失败记录都会保存
+   - 按日期分目录存储
+   - 支持向量索引，便于 RAG 检索
+
+3. **分层 API 上下文**（新增）：
+   - 第一层：Tag 统计（约 500 Token）
+   - 第二层：Tag 端点摘要（按需加载）
+   - 第三层：端点完整详情（仅选中的 API）
+   - 自动控制上下文 Token 限制
+
+4. **默认翻页**（新增）：
+   - 无明确数目时自动添加 `page=1, pageSize=10`
+   - 返回结果包含翻页信息和提示
+
+5. **多格式输出**（新增）：
+   - 文本格式（默认）：友好的人类可读格式
+   - JSON 格式：结构化数据，便于程序处理
+
+6. **智能意图拆解**：LLM 分析用户意图，生成包含登录、API 调用等步骤的执行计划
+7. **步骤验证**：在生成脚本前，直接调用 API 验证每个步骤的正确性
    - 检查 API 路径和参数是否正确
    - 记录实际的输入输出（响应字段、数据量、样例数据）
    - 如果验证失败，自动修正执行计划（最多 2 次）
-3. **上下文增强**：将步骤验证的实际输入输出加入脚本生成上下文
-4. **迭代调试**：脚本执行失败时，LLM 分析错误并自动修复（最多 10 次迭代）
+8. **上下文增强**：将步骤验证的实际输入输出加入脚本生成上下文
+9. **迭代调试**：脚本执行失败时，LLM 分析错误并自动修复（最多 10 次迭代）
 
 **使用示例**：
 
@@ -549,11 +575,22 @@ python -m AIagent.src.django_api generate "查询用户列表" -v
 
 # 增加迭代次数
 python -m AIagent.src.django_api generate "复杂查询" --max-iter 15
+
+# JSON 格式输出
+python -m AIagent.src.django_api generate "查询用户列表" --json
+
+# 禁用历史记录保存
+python -m AIagent.src.django_api generate "测试查询" --no-save
 ```
 
 **输出说明**：
 
 ```
+🔍 历史检索
+├── 🟢 发现精确匹配（相似度 0.97）
+│   └── 历史意图: 查询用户列表前5个
+└── 直接复用脚本，已自动替换参数
+
 📋 执行计划
 ├── 步骤 1: 登录 - 获取认证 Token
 └── 步骤 2: 查询 - 调用 /api/core/survey/query
@@ -565,8 +602,38 @@ python -m AIagent.src.django_api generate "复杂查询" --max-iter 15
     ├── 数据量: 10 条
     └── 样例: {"id": 1, "name": "..."}
 
-📊 结果
-└── 查询成功，返回 10 条记录
+📊 查询结果
+├── 数据: [10 条用户记录]
+│   ├── {"id": 1, "username": "admin", ...}
+│   └── ... (共 10 条)
+│
+└── 📄 翻页信息
+    ├── 当前页: 1 / 16
+    ├── 总记录数: 156
+    └── 💡 还有 146 条未显示，可输入"下一页"继续查看
+```
+
+**JSON 输出格式**：
+
+```json
+{
+  "success": true,
+  "data": [
+    {"id": 1, "username": "admin", "email": "admin@example.com"}
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 10,
+    "total": 156,
+    "totalPages": 16,
+    "hasMore": true
+  },
+  "meta": {
+    "intent": "查询用户列表",
+    "api": "core_user_list",
+    "duration": "0.23s"
+  }
+}
 ```
 
 #### 配置说明
@@ -585,6 +652,17 @@ DJANGO_API_ENABLE_RAG=true
 DJANGO_API_KEYWORD_FILTER_THRESHOLD=20
 DJANGO_API_RETRIEVAL_TOP_K=10
 DJANGO_API_SIMILARITY_THRESHOLD=0.5
+
+# 历史记录配置（新增）
+DJANGO_API_HISTORY_DIR=data/execution_history  # 历史记录存储目录
+DJANGO_API_OUTPUT_FORMAT=text                   # 默认输出格式：text/json
+
+# 翻页配置（新增）
+DJANGO_API_DEFAULT_PAGE=1                       # 默认页码
+DJANGO_API_DEFAULT_PAGE_SIZE=10                 # 默认每页数量
+
+# 上下文优化配置（新增）
+DJANGO_API_CONTEXT_TOKEN_LIMIT=4000             # API 上下文 Token 限制
 
 # Embedding 配置（阿里云百炼示例）
 EMBEDDING_PROVIDER=openai
@@ -607,6 +685,27 @@ django_api:
     keyword_filter_threshold: 20
     top_k: 10
     similarity_threshold: 0.5
+  # 历史记录配置（新增）
+  history:
+    enabled: true
+    dir: "data/execution_history"
+    retention_days: 30
+  # 翻页配置（新增）
+  pagination:
+    default_page: 1
+    default_page_size: 10
+    tag_overrides:
+      Survey: 20        # 问卷数据默认返回 20 条
+      Core-User: 10     # 用户数据默认返回 10 条
+  # 历史检索配置（新增）
+  history_retrieval:
+    exact_threshold: 0.95     # 精确匹配阈值
+    high_threshold: 0.80      # 高度相似阈值
+    low_threshold: 0.60       # 一般相似阈值
+    weights:
+      semantic: 0.7           # 语义相似度权重
+      api: 0.2                # API 重合度权重
+      keyword: 0.1            # 关键词匹配权重
 ```
 
 ## 架构设计

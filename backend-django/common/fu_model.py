@@ -39,7 +39,7 @@ class RootModel(models.Model):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="创建人",
+        help_text="创建人，关联 core_user.id",
         related_name="%(app_label)s_%(class)s_created",
         db_index=True,
     )
@@ -57,7 +57,7 @@ class RootModel(models.Model):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="修改人",
+        help_text="修改人，关联 core_user.id",
         related_name="%(app_label)s_%(class)s_modified",
     )
     

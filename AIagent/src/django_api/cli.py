@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.django_api.client import OpenAPIAwareClient
 from src.django_api.models import DjangoAPIConfig, APIEndpoint
+from src.django_api.output_format import OutputFormat
 from src.utils.config_models import Settings
 
 
@@ -828,160 +829,241 @@ async def cmd_generate(args):
     client, config = get_client()
     intent = args.intent
     
-    print("=" * 60)
-    print(f"生成多步骤脚本: '{intent}'")
-    print(f"🔧 模式: LangGraph 工作流")
+    # 确定输出格式
+    output_format = OutputFormat.JSON if getattr(args, 'json', False) else OutputFormat.TEXT
+    no_save = getattr(args, 'no_save', False)
+    
+    # JSON 分隔符常量
+    JSON_OUTPUT_SEPARATOR = "===JSON_OUTPUT_START==="
+    
+    # 定义输出函数：JSON 模式下输出到 stderr，文本模式下输出到 stdout
+    def info_print(*msg_args, **kwargs):
+        """输出流程信息：JSON 模式输出到 stderr，文本模式输出到 stdout"""
+        if output_format == OutputFormat.JSON:
+            print(*msg_args, file=sys.stderr, **kwargs)
+        else:
+            print(*msg_args, **kwargs)
+    
+    # 显示流程信息（两种模式都显示）
+    info_print("=" * 60)
+    info_print(f"生成多步骤脚本: '{intent}'")
+    info_print(f"🔧 模式: LangGraph 工作流")
     if args.debug:
-        print(f"📝 Debug 输出已启用")
+        info_print(f"📝 Debug 输出已启用")
     if args.auto_fix:
-        print(f"🔄 自动迭代修正已启用 (最大 {args.max_iter} 次)")
-    print("=" * 60)
+        info_print(f"🔄 自动迭代修正已启用 (最大 {args.max_iter} 次)")
+    if no_save:
+        info_print(f"📝 历史记录保存已禁用")
+    if output_format == OutputFormat.JSON:
+        info_print(f"📤 输出格式: JSON (分隔符: {JSON_OUTPUT_SEPARATOR})")
+    info_print("=" * 60)
     
     try:
         # 加载 OpenAPI Schema
-        print("\n正在加载 OpenAPI Schema...")
+        info_print("\n正在加载 OpenAPI Schema...")
         await client.load_openapi_schema()
-        print(f"✓ 已加载 {len(client._endpoints)} 个 API 端点")
+        info_print(f"✓ 已加载 {len(client._endpoints)} 个 API 端点")
         
         # 创建脚本生成器
         generator = ScriptGenerator(
             api_client=client,
             debug_mode=args.debug,
             auto_fix=args.auto_fix,
-            max_iterations=args.max_iter if hasattr(args, 'max_iter') else 3
+            max_iterations=args.max_iter if hasattr(args, 'max_iter') else 3,
+            save_history=not no_save,
+            output_format=output_format,
         )
         
-        # 如果不自动执行，只生成一次
+        # auto_fix 默认启用，用于执行计划验证阶段的修正
+        # 如果不使用 -x 参数，脚本执行后不进行迭代修正
         if not args.execute:
-            generator.auto_fix = False
             generator.max_iterations = 1
         
         # 运行 LangGraph 工作流
-        print("\n🚀 启动 LangGraph 工作流...")
-        print("  [1/4] 拆解意图...")
-        result = await generator.generate(intent, verbose=args.verbose)
+        info_print("\n🚀 启动 LangGraph 工作流...")
+        info_print("  [1/4] 拆解意图...")
+        result = await generator.generate(
+            intent, 
+            verbose=args.verbose,
+            output_format=output_format,
+            no_save=no_save,
+        )
         
-        # 显示执行计划
-        if result.get('execution_plan'):
-            plan = result['execution_plan']
-            print("\n" + "=" * 60)
-            print("📋 执行计划")
-            print("=" * 60)
+        # JSON 格式：输出带分隔符的 JSON
+        if output_format == OutputFormat.JSON:
+            # 构建完整的 JSON 输出
+            json_result = {
+                "success": result.get('success', False),
+                "iterations": result.get('iterations', 0),
+                "intent": intent,
+                "execution_plan": result.get('execution_plan', {}),
+                "validation_results": result.get('steps_validation_results', []),
+                "output": result.get('output', ''),
+                "script": result.get('script', ''),
+            }
+            # 添加格式化的数据输出
+            formatted = generator.format_output(result, output_format)
+            if formatted:
+                try:
+                    json_result["formatted_data"] = json.loads(formatted)
+                except:
+                    json_result["formatted_data"] = formatted
             
-            # 显示意图分析
-            intent_analysis = plan.get('intent_analysis', {})
-            if intent_analysis:
-                print(f"\n目标: {intent_analysis.get('goal', 'N/A')}")
-                print(f"目标数据: {intent_analysis.get('target_data', 'N/A')}")
-                conditions = intent_analysis.get('conditions', [])
-                if conditions:
-                    print(f"条件: {', '.join(conditions)}")
+            # 完成信息输出到 stderr
+            info_print("\n✅ 执行完成")
+            info_print(f"  迭代次数: {result.get('iterations', 0)}")
+            info_print(f"  状态: {'成功' if result.get('success') else '失败'}")
             
-            # 显示步骤
-            steps = plan.get('steps', [])
-            if steps:
-                print(f"\n执行步骤 ({len(steps)} 个):")
-                for step in steps:
-                    api = step.get('api', {})
-                    params = step.get('params', {})
-                    print(f"\n  步骤 {step.get('step_number', '?')}: {step.get('description', 'N/A')}")
-                    print(f"    API: {api.get('method', '?')} {api.get('path', '?')}")
-                    if params.get('query_params'):
-                        print(f"    Query: {json.dumps(params['query_params'], ensure_ascii=False)}")
-                    if params.get('body'):
-                        print(f"    Body: {json.dumps(params['body'], ensure_ascii=False)}")
-                    if step.get('data_to_extract'):
-                        print(f"    提取: {step['data_to_extract']}")
-        
-        # 显示步骤验证结果（关键调试信息，始终显示）
-        if result.get('steps_validation_results'):
-            print("\n" + "=" * 60)
-            print("🔬 步骤验证结果")
-            print("=" * 60)
-            
-            for step_result in result['steps_validation_results']:
-                step_num = step_result.get('step', '?')
-                path = step_result.get('path', 'N/A')
-                status = step_result.get('status', 'unknown')
-                
-                if status == 'success':
-                    output = step_result.get('output', {})
-                    print(f"\n  步骤 {step_num}: {path}")
-                    print(f"    状态: ✅ 成功")
-                    print(f"    响应字段: {output.get('keys', [])}")
-                    print(f"    items 数量: {output.get('items_count', 'N/A')}")
-                    print(f"    total: {output.get('total', 'N/A')}")
-                    if output.get('item_fields'):
-                        print(f"    数据字段: {output['item_fields'][:8]}...")
-                    if output.get('sample'):
-                        print(f"    样例数据: {output['sample']}")
-                elif status == 'skipped':
-                    print(f"\n  步骤 {step_num}: {path}")
-                    print(f"    状态: ⏭️ 跳过 ({step_result.get('message', '')})")
-                else:
-                    print(f"\n  步骤 {step_num}: {path}")
-                    print(f"    状态: ❌ 失败")
-                    print(f"    错误: {step_result.get('error', 'N/A')[:200]}")
-            
-            # 显示修正次数
-            if result.get('plan_fix_count', 0) > 0:
-                print(f"\n  📝 执行计划修正次数: {result['plan_fix_count']}")
-            
-            if result.get('steps_validated'):
-                print(f"\n  ✅ 所有步骤验证通过")
-            else:
-                print(f"\n  ⚠️ 步骤验证未完全通过")
-        
-        # 显示结果
-        print("\n" + "=" * 60)
-        print(f"结果 (迭代次数: {result['iterations']})")
-        print("=" * 60)
-        
-        if result['script']:
-            print("\n📜 生成的脚本:")
-            print("-" * 40)
-            # 限制脚本显示长度
-            script_preview = result['script']
-            if len(script_preview) > 3000 and not args.verbose:
-                script_preview = script_preview[:3000] + "\n... (已截断，使用 -v 查看完整脚本)"
-            print(script_preview)
-            
-            # 保存到文件
-            if args.output:
-                output_path = Path(args.output)
-                output_path.write_text(result['script'], encoding='utf-8')
-                print(f"\n✓ 脚本已保存到: {args.output}")
-        
-        if result['output']:
-            print("\n📤 执行输出:")
-            print("-" * 40)
-            print(result['output'])
-        
-        # 显示过程消息
-        if args.verbose and result['messages']:
-            print("\n📋 工作流日志:")
-            print("-" * 40)
-            for msg in result['messages']:
-                print(f"  {msg}")
-        
-        # 显示验证结果
-        if 'validation_passed' in result:
-            if result['validation_passed']:
-                print(f"\n🔍 结果验证: ✅ 通过")
-            else:
-                print(f"\n🔍 结果验证: ❌ 失败")
-                if result.get('validation_feedback'):
-                    print(f"   原因: {result['validation_feedback'][:200]}")
-        
-        # 显示最终状态
-        if result['success']:
-            print("\n✅ 脚本执行成功，结果已验证")
+            # 输出分隔符和 JSON（到 stdout，方便程序提取）
+            print(JSON_OUTPUT_SEPARATOR)
+            print(json.dumps(json_result, ensure_ascii=False, indent=2))
         else:
-            print(f"\n⚠️ 脚本执行或验证失败 (迭代 {result['iterations']} 次)")
-        
-        if not args.execute:
-            print(f"\n提示: 使用 -x 参数执行脚本，使用 -d 启用调试模式")
-            print(f"      使用 --auto-fix 启用自动迭代修正")
+            # 文本格式：显示执行计划
+            if result.get('execution_plan'):
+                plan = result['execution_plan']
+                print("\n" + "=" * 60)
+                print("📋 执行计划")
+                print("=" * 60)
+                
+                # 显示意图分析
+                intent_analysis = plan.get('intent_analysis', {})
+                if intent_analysis:
+                    print(f"\n目标: {intent_analysis.get('goal', 'N/A')}")
+                    print(f"目标数据: {intent_analysis.get('target_data', 'N/A')}")
+                    conditions = intent_analysis.get('conditions', [])
+                    if conditions:
+                        print(f"条件: {', '.join(conditions)}")
+                
+                # 显示步骤
+                steps = plan.get('steps', [])
+                if steps:
+                    print(f"\n执行步骤 ({len(steps)} 个):")
+                    for step in steps:
+                        if not step or not isinstance(step, dict):
+                            continue
+                        api = step.get('api', {}) or {}
+                        params = step.get('params', {}) or {}
+                        print(f"\n  步骤 {step.get('step_number', '?')}: {step.get('description', 'N/A')}")
+                        print(f"    API: {api.get('method', '?')} {api.get('path', '?')}")
+                        if params.get('query_params'):
+                            print(f"    Query: {json.dumps(params['query_params'], ensure_ascii=False)}")
+                        if params.get('body'):
+                            print(f"    Body: {json.dumps(params['body'], ensure_ascii=False)}")
+                        if step.get('data_to_extract'):
+                            print(f"    提取: {step['data_to_extract']}")
+            
+            # 显示步骤验证结果
+            if result.get('steps_validation_results'):
+                print("\n" + "=" * 60)
+                print("🔬 步骤验证结果")
+                print("=" * 60)
+                
+                for step_result in result['steps_validation_results']:
+                    step_num = step_result.get('step', '?')
+                    path = step_result.get('path', 'N/A')
+                    status = step_result.get('status', 'unknown')
+                    output = step_result.get('output', {})
+                    
+                    print(f"\n  步骤 {step_num}: {path}")
+                    
+                    if status == 'success':
+                        print(f"    状态: ✅ 成功")
+                    elif status == 'warning':
+                        print(f"    状态: ⚠️ 警告")
+                        if step_result.get('warning'):
+                            print(f"    警告: {step_result['warning']}")
+                    elif status == 'skipped':
+                        print(f"    状态: ⏭️ 跳过 ({step_result.get('message', '')})")
+                        continue
+                    else:  # failed
+                        print(f"    状态: ❌ 失败")
+                        print(f"    错误: {step_result.get('error', 'N/A')[:200]}")
+                        continue
+                    
+                    # 显示输出信息（成功和警告状态都显示）
+                    if output:
+                        items_count = output.get('items_count', output.get('length', 'N/A'))
+                        print(f"    响应字段: {output.get('keys', output.get('item_fields', []))}")
+                        print(f"    items 数量: {items_count}")
+                        print(f"    total: {output.get('total', 'N/A')}")
+                        if output.get('expected_fields'):
+                            print(f"    需要提取: {output['expected_fields']}")
+                            print(f"    已提取到: {output.get('extracted_fields', [])}")
+                            if output.get('missing_fields'):
+                                print(f"    ❌ 缺失字段: {output['missing_fields']}")
+                        if output.get('placeholder_warning'):
+                            print(f"    ℹ️ 占位符: {output.get('placeholder_info', '参数包含占位符')}")
+                        if output.get('sample'):
+                            print(f"    样例数据: {output['sample']}")
+                
+                # 显示修正次数
+                if result.get('plan_fix_count', 0) > 0:
+                    print(f"\n  📝 执行计划修正次数: {result['plan_fix_count']}")
+                
+                if result.get('steps_validated'):
+                    print(f"\n  ✅ 所有步骤验证通过")
+                else:
+                    print(f"\n  ❌ 步骤验证失败（已尝试修正 {result.get('plan_fix_count', 0)} 次）")
+                    if not result.get('script'):
+                        print(f"  ⛔ 验证失败，未生成脚本")
+            
+            # 显示结果
+            print("\n" + "=" * 60)
+            print(f"结果 (迭代次数: {result['iterations']})")
+            print("=" * 60)
+            # 文本格式输出
+            if result['script']:
+                print("\n📜 生成的脚本:")
+                print("-" * 40)
+                # 限制脚本显示长度
+                script_preview = result['script']
+                if len(script_preview) > 3000 and not args.verbose:
+                    script_preview = script_preview[:3000] + "\n... (已截断，使用 -v 查看完整脚本)"
+                print(script_preview)
+                
+                # 保存到文件
+                if args.output:
+                    output_path = Path(args.output)
+                    output_path.write_text(result['script'], encoding='utf-8')
+                    print(f"\n✓ 脚本已保存到: {args.output}")
+            
+            if result['output']:
+                print("\n📤 执行输出:")
+                print("-" * 40)
+                # 使用格式化输出
+                formatted = generator.format_output(result, OutputFormat.TEXT)
+                print(formatted)
+            
+            # 显示过程消息
+            if args.verbose and result['messages']:
+                print("\n📋 工作流日志:")
+                print("-" * 40)
+                for msg in result['messages']:
+                    print(f"  {msg}")
+            
+            # 显示验证结果
+            if 'validation_passed' in result:
+                if result['validation_passed']:
+                    print(f"\n🔍 结果验证: ✅ 通过")
+                else:
+                    print(f"\n🔍 结果验证: ❌ 失败")
+                    if result.get('validation_feedback'):
+                        print(f"   原因: {result['validation_feedback'][:200]}")
+            
+            # 显示历史复用信息
+            if result.get('history_reused'):
+                print(f"\n📚 历史复用: ✅ 使用了历史脚本")
+            
+            # 显示最终状态
+            if result['success']:
+                print("\n✅ 脚本执行成功，结果已验证")
+            else:
+                print(f"\n⚠️ 脚本执行或验证失败 (迭代 {result['iterations']} 次)")
+            
+            if not args.execute:
+                print(f"\n提示: 使用 -x 参数执行脚本，使用 -d 启用调试模式")
+                print(f"      使用 --auto-fix 启用自动迭代修正")
+                print(f"      使用 --json 输出 JSON 格式结果")
         
     except Exception as e:
         print(f"错误: {e}")
@@ -1073,6 +1155,8 @@ def main():
     parser_generate.add_argument('--auto-fix', action='store_true', help='执行失败时自动迭代修正')
     parser_generate.add_argument('--max-iter', type=int, default=10, help='最大迭代次数（默认: 10）')
     parser_generate.add_argument('-v', '--verbose', action='store_true', help='显示详细信息')
+    parser_generate.add_argument('--json', action='store_true', help='输出 JSON 格式结果')
+    parser_generate.add_argument('--no-save', action='store_true', help='不保存执行记录到历史')
     parser_generate.set_defaults(func=cmd_generate)
     
     args = parser.parse_args()

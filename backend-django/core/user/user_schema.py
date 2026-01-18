@@ -27,10 +27,10 @@ class UserFilters(FuFilters):
 
 class UserSchemaIn(ModelSchema):
     """用户输入模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id")
-    manager_id: Optional[str] = Field(None, alias="manager_id")
-    post: List[str] = Field(default=[], description="岗位ID列表")
-    core_roles: List[str] = Field(default=[], description="角色ID列表")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 core_dept.id）")
+    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 core_user.id）")
+    post: List[str] = Field(default=[], description="岗位ID列表（关联 core_post.id）")
+    core_roles: List[str] = Field(default=[], description="角色ID列表（关联 core_role.id）")
     
     @field_validator('username', check_fields=False)
     @classmethod
@@ -164,10 +164,10 @@ class UserSchemaPatch(Schema):
 
 class UserSchemaOut(ModelSchema):
     """用户输出模式"""
-    dept_id: Optional[str] = Field(None, alias="dept_id")
-    dept_name: Optional[str] = Field(None, alias="dept.name")
-    manager_id: Optional[str] = Field(None, alias="manager_id")
-    manager_name: Optional[str] = Field(None, alias="manager.name")
+    dept_id: Optional[str] = Field(None, alias="dept_id", description="所属部门ID（关联 core_dept.id）")
+    dept_name: Optional[str] = Field(None, alias="dept.name", description="所属部门名称")
+    manager_id: Optional[str] = Field(None, alias="manager_id", description="直属上级ID（自引用 core_user.id）")
+    manager_name: Optional[str] = Field(None, alias="manager.name", description="直属上级姓名")
     user_type_display: Optional[str] = None
     user_status_display: Optional[str] = None
     gender_display: Optional[str] = None

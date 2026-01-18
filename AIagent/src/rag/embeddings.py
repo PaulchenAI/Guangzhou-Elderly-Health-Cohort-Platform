@@ -37,7 +37,27 @@ def create_embeddings(rag_config: RAGConfig, llm_config: Optional[LLMConfig] = N
         if not api_key:
             raise ValueError("使用 openai 嵌入时需要配置 EMBEDDING_API_KEY")
 
-        return OpenAIEmbeddings(model=model, api_key=api_key)
+        # 支持自定义 base_url（阿里云百炼等兼容 API）
+        base_url = rag_config.embedding_base_url
+        
+        # 阿里云百炼等兼容 API 可能不支持 tokenization
+        # 禁用 tiktoken 分词和上下文长度检查，直接发送原始文本
+        # 批量大小使用配置文件中的 EMBEDDING_MAX_BATCH_SIZE
+        batch_size = rag_config.embedding_max_batch_size or 10
+        common_kwargs = {
+            "model": model,
+            "api_key": api_key,
+            "tiktoken_enabled": False,  # 禁用 tiktoken 分词
+            "check_embedding_ctx_length": False,  # 禁用上下文长度检查
+            "chunk_size": batch_size,  # 使用配置的批量大小
+        }
+        
+        if base_url:
+            # 阿里云百炼等兼容 API
+            common_kwargs["openai_api_base"] = base_url
+            logger.info(f"使用自定义 embedding API: {base_url}")
+        
+        return OpenAIEmbeddings(**common_kwargs)
 
     if provider in ("azure", "azure_openai"):
         from langchain_openai import AzureOpenAIEmbeddings

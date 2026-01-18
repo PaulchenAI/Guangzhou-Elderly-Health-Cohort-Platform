@@ -18,7 +18,7 @@ class Menu(RootModel):
         db_constraint=False,
         blank=True,
         null=True,
-        help_text="Parent Menu",
+        help_text="父菜单，自引用 core_menu.id",
     )
     name = models.CharField(max_length=100, help_text='菜单名称')
     title = models.CharField(max_length=100, blank=True, null=True, help_text='菜单标题')

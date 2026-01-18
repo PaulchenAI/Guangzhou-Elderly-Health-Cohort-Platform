@@ -98,7 +98,7 @@ class Post(RootModel):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="所属部门",
+        help_text="所属部门，关联 core_dept.id",
         related_name='posts',
     )
     

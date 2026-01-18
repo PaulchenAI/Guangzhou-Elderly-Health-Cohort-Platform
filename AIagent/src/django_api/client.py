@@ -111,13 +111,14 @@ class OpenAPIAwareClient:
         """获取端点数量"""
         return len(self._endpoints)
     
-    def get_api_summary_for_ai(self, include_schema: bool = True) -> str:
+    def get_api_summary_for_ai(self, include_schema: bool = True, max_tokens: int = 0) -> str:
         """
         生成 AI 可理解的 API 摘要
         用于 LLM 理解可用的 API 能力
         
         Args:
             include_schema: 是否包含详细的请求/响应 Schema
+            max_tokens: Token 限制（0 表示不限制）。超过时自动切换到紧凑模式
         
         Returns:
             API 摘要文本
@@ -125,6 +126,19 @@ class OpenAPIAwareClient:
         if not self._schema:
             return "API Schema 尚未加载，请先调用 load_openapi_schema()"
         
+        # 如果设置了 Token 限制，先检查是否需要紧凑模式
+        if max_tokens > 0:
+            full_summary = self._generate_full_summary(include_schema)
+            estimated_tokens = self.estimate_token_count(full_summary)
+            if estimated_tokens > max_tokens:
+                logger.info(f"完整摘要 Token 数 ({estimated_tokens}) 超过限制 ({max_tokens})，切换到紧凑模式")
+                return self.get_api_summary_compact()
+            return full_summary
+        
+        return self._generate_full_summary(include_schema)
+    
+    def _generate_full_summary(self, include_schema: bool = True) -> str:
+        """生成完整的 API 摘要"""
         info = self._schema.get("info", {})
         lines = []
         
@@ -143,6 +157,156 @@ class OpenAPIAwareClient:
                 lines.append("")  # 空行分隔
         
         return "\n".join(lines)
+    
+    def get_api_summary_compact(self) -> str:
+        """
+        生成紧凑的 API 摘要（第一层）
+        仅包含 Tag 统计和描述，不包含具体端点详情
+        适用于 API 数量较多时减少上下文占用
+        
+        Returns:
+            紧凑的 API 摘要文本
+        """
+        if not self._schema:
+            return "API Schema 尚未加载，请先调用 load_openapi_schema()"
+        
+        info = self._schema.get("info", {})
+        lines = []
+        
+        # 标题和描述
+        lines.append(f"# {info.get('title', 'Django API')}")
+        if info.get("description"):
+            lines.append(f"\n{info.get('description')}")
+        
+        # 统计信息
+        total_endpoints = len(self._endpoints)
+        total_tags = len(self._endpoints_by_tag)
+        lines.append(f"\n## API 概览")
+        lines.append(f"共 {total_tags} 个分类，{total_endpoints} 个端点\n")
+        
+        # 按 tag 列出统计（紧凑模式，包含关键 API 路径）
+        lines.append("## API 分类\n")
+        for tag, endpoints in self._endpoints_by_tag.items():
+            lines.append(f"### {tag} ({len(endpoints)} 个端点)")
+            # 显示前 5 个端点的路径和描述
+            for ep in endpoints[:5]:
+                lines.append(f"  - `{ep.method} {ep.path}` - {ep.summary or '无描述'}")
+            if len(endpoints) > 5:
+                lines.append(f"  - ... 还有 {len(endpoints) - 5} 个端点")
+            lines.append("")
+        
+        lines.append("> **重要**: 只能使用上面列出的 API 路径，不要编造不存在的路径！")
+        
+        return "\n".join(lines)
+    
+    def get_tag_endpoints_summary(self, tag: str) -> str:
+        """
+        获取指定 Tag 下所有端点的摘要（第二层）
+        包含端点路径、方法、描述，以及参数的名称和说明
+        
+        Args:
+            tag: API 分类标签
+        
+        Returns:
+            该 Tag 下的端点摘要文本
+        """
+        if tag not in self._endpoints_by_tag:
+            available_tags = ", ".join(self._endpoints_by_tag.keys())
+            return f"未找到分类 '{tag}'。可用分类: {available_tags}"
+        
+        endpoints = self._endpoints_by_tag[tag]
+        lines = []
+        
+        lines.append(f"## {tag} API 端点列表\n")
+        lines.append(f"共 {len(endpoints)} 个端点\n")
+        
+        for ep in endpoints:
+            # 简要格式：方法 路径 - 描述
+            lines.append(f"### {ep.method} `{ep.path}`")
+            lines.append(f"- operation_id: `{ep.operation_id}`")
+            lines.append(f"- 描述: {ep.summary or ep.description[:100] if ep.description else '无'}")
+            
+            # 参数列表（包含描述，让 AI 理解参数含义）
+            if ep.parameters:
+                lines.append("- 参数:")
+                for param in ep.parameters:
+                    param_name = param.get('name', '')
+                    param_in = param.get('in', 'query')
+                    param_desc = param.get('description', '无描述')
+                    param_required = param.get('required', False)
+                    required_mark = "**必填**" if param_required else "可选"
+                    # 截断过长的描述
+                    if len(param_desc) > 80:
+                        param_desc = param_desc[:80] + "..."
+                    lines.append(f"  - `{param_name}` ({param_in}, {required_mark}): {param_desc}")
+            
+            # 请求体（如果有，提取字段说明）
+            if ep.request_body:
+                lines.append("- 请求体:")
+                body_schema = ep._extract_schema(ep.request_body) if hasattr(ep, '_extract_schema') else None
+                if body_schema:
+                    lines.append(ep._format_schema(body_schema, indent=2, include_details=False))
+                else:
+                    lines.append("  JSON 数据")
+            
+            lines.append("")
+        
+        lines.append("> ⚠️ **重要**: 使用 API 前请仔细阅读每个参数的描述，确保传入正确的值类型！")
+        
+        return "\n".join(lines)
+    
+    def get_endpoint_detail(self, operation_id: str) -> str:
+        """
+        获取指定端点的完整详情（第三层）
+        包含完整的参数定义和响应结构
+        
+        Args:
+            operation_id: 端点的 operation_id
+        
+        Returns:
+            端点的完整详情文本
+        """
+        if operation_id not in self._endpoints:
+            # 尝试模糊匹配
+            matches = [oid for oid in self._endpoints.keys() 
+                      if operation_id.lower() in oid.lower()]
+            if matches:
+                return f"未找到 '{operation_id}'。您是否想找: {', '.join(matches[:5])}"
+            return f"未找到端点 '{operation_id}'"
+        
+        endpoint = self._endpoints[operation_id]
+        return endpoint.to_ai_description(include_schema=True)
+    
+    def get_tags(self) -> List[str]:
+        """获取所有 API 分类标签"""
+        return list(self._endpoints_by_tag.keys())
+    
+    def get_tag_stats(self) -> Dict[str, int]:
+        """获取各分类的端点数量统计"""
+        return {tag: len(eps) for tag, eps in self._endpoints_by_tag.items()}
+    
+    @staticmethod
+    def estimate_token_count(text: str) -> int:
+        """
+        估算文本的 Token 数量
+        使用简单的启发式方法：中文约 1.5 字符/token，英文约 4 字符/token
+        
+        Args:
+            text: 要估算的文本
+        
+        Returns:
+            估算的 Token 数量
+        """
+        if not text:
+            return 0
+        
+        # 统计中英文字符
+        chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        other_chars = len(text) - chinese_chars
+        
+        # 中文约 1.5 字符/token，英文约 4 字符/token
+        estimated = (chinese_chars / 1.5) + (other_chars / 4)
+        return int(estimated)
     
     def get_endpoints_by_keyword(self, keyword: str) -> List[APIEndpoint]:
         """

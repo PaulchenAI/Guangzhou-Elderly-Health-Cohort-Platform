@@ -100,7 +100,7 @@ class Dept(RootModel):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="父部门",
+        help_text="父部门，自引用 core_dept.id",
         related_name="children",
     )
     
@@ -111,7 +111,7 @@ class Dept(RootModel):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="部门领导",
+        help_text="部门领导，关联 core_user.id",
         related_name='leading_depts',
     )
     

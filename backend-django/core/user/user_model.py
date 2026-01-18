@@ -286,7 +286,7 @@ class User(RootModel):
         to="core.Post",
         db_constraint=False,
         blank=True,
-        help_text="关联的岗位",
+        help_text="关联的岗位，多对多关联 core_post，中间表 core_user_post",
         related_name="core_users",
     )
     
@@ -295,7 +295,7 @@ class User(RootModel):
         to="core.Role",
         db_constraint=False,
         blank=True,
-        help_text="关联的角色",
+        help_text="关联的角色，多对多关联 core_role，中间表 core_user_core_roles",
         related_name="core_users",
     )
     
@@ -306,7 +306,7 @@ class User(RootModel):
         db_constraint=False,
         null=True,
         blank=True,
-        help_text="所属部门",
+        help_text="所属部门，关联 core_dept.id",
         related_name="core_users",
     )
 
@@ -324,7 +324,7 @@ class User(RootModel):
         null=True,
         blank=True,
         related_name="subordinates",
-        help_text="直属上级",
+        help_text="直属上级，自引用 core_user.id",
     )
     
     class Meta:
