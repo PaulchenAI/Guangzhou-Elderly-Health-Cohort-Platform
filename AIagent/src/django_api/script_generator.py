@@ -884,56 +884,14 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
         expanded_api_info = []
         matched_tags = []
         
-        # 路径关键词 -> 可能的 Tag 名称映射（支持中英文）
-        # 后端 tags 有两种风格：router.py 默认的 Core-* 和 API 端点覆盖的中文 tag
-        path_tag_mapping = {
-            # 核心业务模块
-            'user': ['Core-User'],
-            'role': ['Core-Role'],
-            'auth': ['Core-Auth'],
-            'login': ['Core-Auth', 'Core-LoginLog'],
-            'permission': ['Core-Permission'],
-            'dept': ['Core-Dept'],
-            'post': ['Core-Post'],
-            'menu': ['Core-Menu'],
-            # 字典模块（有中文 tag 覆盖）
-            'dict': ['Core-Dict', 'Core-DictItem', '字典管理', '字典项管理'],
-            'dict_item': ['Core-DictItem', '字典项管理'],
-            # 表查询模块（中文 tag）
-            'table-query': ['Core-TableQuery', '表查询管理'],
-            'tablequery': ['Core-TableQuery', '表查询管理'],
-            # 问卷模块（中文 tag）
-            'survey': ['Core-Survey', '问卷管理'],
-            # 外键元数据（中文 tag）
-            'foreignkey': ['Core-ForeignKey', '外键关系元数据'],
-            # 文件管理
-            'file': ['Core-FileManager'],
-            'file_manager': ['Core-FileManager'],
-            # 监控模块
-            'server': ['Core-ServerMonitor'],
-            'redis': ['Core-RedisMonitor', 'Core-RedisManager'],
-            'database': ['Core-DatabaseMonitor', 'Core-DatabaseManager'],
-            # OAuth
-            'oauth': ['Core-OAuth'],
-            # 定时任务
-            'scheduler': ['Scheduler'],
-        }
-        
+        # 直接通过 API 路径反向查找 tag
+        # 后端 router.py 已配置中英文双 tag，无需维护映射表
         for path_part in related_path_parts:
-            # 方法1: 通过映射表匹配
-            path_key = path_part.lower().replace('-', '')
-            for key, possible_tags in path_tag_mapping.items():
-                if key.replace('-', '') in path_key or path_key in key.replace('-', ''):
-                    for possible_tag in possible_tags:
-                        for actual_tag in api_client._endpoints_by_tag.keys():
-                            if possible_tag.lower() in actual_tag.lower() or actual_tag.lower() in possible_tag.lower():
-                                if actual_tag not in matched_tags:
-                                    matched_tags.append(actual_tag)
-            
-            # 方法2: 通过 API 路径反向查找 tag
+            path_lower = path_part.lower()
             for tag, endpoints in api_client._endpoints_by_tag.items():
                 for ep in endpoints:
-                    if path_part.lower() in ep.path.lower():
+                    # 检查路径是否包含关键词
+                    if path_lower in ep.path.lower():
                         if tag not in matched_tags:
                             matched_tags.append(tag)
                         break
