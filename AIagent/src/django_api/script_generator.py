@@ -60,6 +60,7 @@ class ScriptGeneratorState(TypedDict):
     # 输入
     intent: str                          # 用户意图
     api_summary: str                     # OpenAPI 摘要
+    api_client: Any                      # OpenAPI 客户端（用于修正计划时扩展搜索）
     debug_mode: bool                     # 是否启用调试
     auto_fix: bool                       # 是否自动修正
     max_iterations: int                  # 最大迭代次数
@@ -307,6 +308,13 @@ async def plan_intent(state: ScriptGeneratorState) -> ScriptGeneratorState:
     intent = state['intent']
     api_summary = state['api_summary']
     
+    # #region agent log [假设G: RAG历史记录内容]
+    import json as _json
+    _rag_context = state.get('history_context', '')
+    _debug_rag = {'runId':'run2','history_context_preview': _rag_context[:800] if _rag_context else None, 'api_summary_len': len(api_summary) if api_summary else 0}
+    with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _f: _f.write(_json.dumps({'runId':'run2','hypothesisId':'G','location':'script_generator.py:plan_intent','message':'RAG历史上下文详情','data':_debug_rag,'timestamp':__import__('time').time()}, ensure_ascii=False)+'\n')
+    # #endregion
+    
     prompt = f"""你是一个 API 调用规划专家。根据用户的自然语言请求和可用的 API 列表，分析并拆解出完整的执行计划。
 
 ## 可用的 API 信息
@@ -343,8 +351,9 @@ async def plan_intent(state: ScriptGeneratorState) -> ScriptGeneratorState:
 {{
   "intent_analysis": {{
     "goal": "用户想要达成的目标",
-    "target_data": "目标数据类型",
-    "conditions": ["条件1", "条件2"],
+    "target_data": "目标数据类型（如：'工作流单据表的数据'）",
+    "conditions": ["条件1（如：'名称包含工作流单据'）", "条件2"],
+    "search_keywords": ["用于数据匹配验证的关键词，如：'工作流', '单据'"],
     "output_format": "期望的输出格式"
   }},
   "steps": [
@@ -362,6 +371,7 @@ async def plan_intent(state: ScriptGeneratorState) -> ScriptGeneratorState:
       }},
       "expected_response": "期望获得的数据",
       "data_to_extract": ["需要提取的字段"],
+      "search_keywords": ["此步骤返回数据中应包含的关键词（可选，用于验证数据是否匹配预期）"],
       "pass_to_next": "传递给下一步的数据"
     }}
   ],
@@ -372,6 +382,8 @@ async def plan_intent(state: ScriptGeneratorState) -> ScriptGeneratorState:
   }}
 }}
 ```
+
+**重要**：`search_keywords` 字段用于验证返回数据是否匹配用户意图，请从用户请求中提取核心名词作为关键词。
 
 请只输出 JSON，不要其他解释。
 """
@@ -473,6 +485,19 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                 context_parts.append(f"### 步骤 {step_num}: {path}\n状态: 已跳过（登录已完成）")
                 continue
             
+            # 跳过非 API 步骤（如 method=NONE 或 path 为空的步骤，通常是脚本内部处理步骤）
+            if not path or method.upper() in ('NONE', '', 'N/A', 'NA'):
+                validation_results.append({
+                    'step': step_num,
+                    'path': path or 'N/A',
+                    'status': 'skipped',
+                    'message': '非 API 步骤（脚本内部处理），无需验证'
+                })
+                desc = step.get('description', '未知操作')
+                context_parts.append(f"### 步骤 {step_num}: {desc}\n状态: 已跳过（非 API 步骤，脚本内部处理）")
+                state['messages'].append(f"[验证步骤] 步骤 {step_num} ⏭️ 跳过: 非 API 步骤 ({desc[:30]})")
+                continue
+            
             # 检查路径是否包含占位符（如 {config_id}）
             import re
             path_placeholders = re.findall(r'\{(\w+)\}', path)
@@ -523,6 +548,20 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                 'placeholder_fields': placeholder_fields if placeholder_fields else None
             }
             
+            # 如果参数中有占位符，跳过验证（因为无法使用真实参数调用）
+            if has_placeholder:
+                validation_results.append({
+                    'step': step_num,
+                    'path': path,
+                    'status': 'skipped',
+                    'message': f'参数包含占位符 {placeholder_fields}，需要运行时替换',
+                    'placeholder_fields': placeholder_fields,
+                    'input': input_info
+                })
+                context_parts.append(f"### 步骤 {step_num}: {path}\n状态: 已跳过（参数包含占位符 {placeholder_fields}，实际运行时会被前序步骤的结果替换）")
+                state['messages'].append(f"[验证步骤] 步骤 {step_num} ⏭️ 跳过: 参数包含占位符 {placeholder_fields}")
+                continue
+            
             try:
                 state['messages'].append(f"[验证步骤] 执行步骤 {step_num}: {method} {path}")
                 
@@ -546,6 +585,7 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                     items = response.get('items', [])
                     output_info['items_count'] = len(items)
                     
+                    
                     # 提取第一条数据的字段名
                     if items and isinstance(items[0], dict):
                         output_info['item_fields'] = list(items[0].keys())
@@ -556,6 +596,7 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                 elif isinstance(response, list):
                     output_info['type'] = 'list'
                     output_info['length'] = len(response)
+                    output_info['items_count'] = len(response)  # 列表本身就是 items
                     # 检查列表是否为空
                     if len(response) == 0:
                         step_warning = "返回空列表，可能无法为后续步骤提供数据"
@@ -580,9 +621,12 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                                 if field in response['items'][0]:
                                     data_extracted.append(field)
                     elif isinstance(response, list) and response:
+                        # 当响应是列表时，列表本身就相当于 items
+                        if 'items' in data_to_extract:
+                            data_extracted.append('items')  # 列表本身就是 items
                         if isinstance(response[0], dict):
                             for field in data_to_extract:
-                                if field in response[0]:
+                                if field != 'items' and field in response[0]:
                                     data_extracted.append(field)
                     
                     output_info['extracted_fields'] = data_extracted
@@ -608,6 +652,72 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                     if not step_warning:
                         step_warning = "返回数据为空，后续依赖此数据的步骤可能失败"
                     step_status = 'warning'
+                
+                # 检查查询条件与返回数据的匹配度
+                # 从执行计划中获取 LLM 指定的搜索关键词
+                intent_keywords = []
+                
+                # 优先从步骤定义中获取 search_keywords（如果 LLM 在计划中指定了）
+                step_keywords = step.get('search_keywords', [])
+                
+                if step_keywords:
+                    intent_keywords = step_keywords if isinstance(step_keywords, list) else [step_keywords]
+                else:
+                    # 从 intent_analysis 中获取条件关键词
+                    intent_analysis = state.get('execution_plan', {}).get('intent_analysis', {})
+                    conditions = intent_analysis.get('conditions', [])
+                    target_data = intent_analysis.get('target_data', '')
+                    
+                    # 提取条件中的关键词
+                    import re
+                    for condition in conditions:
+                        # 提取引号内的内容作为关键词
+                        quoted = re.findall(r"['\"]([^'\"]+)['\"]", str(condition))
+                        intent_keywords.extend(quoted)
+                    
+                    # 如果还没有，从 target_data 中提取
+                    if not intent_keywords and target_data:
+                        quoted = re.findall(r"['\"]([^'\"]+)['\"]", target_data)
+                        intent_keywords.extend(quoted)
+                        # 或者直接使用 target_data 中的名词
+                        if not intent_keywords:
+                            # 提取中文名词短语（简单方式）
+                            nouns = re.findall(r'[\u4e00-\u9fa5]{2,6}(?:表|单据|配置|数据|记录|信息)', target_data)
+                            intent_keywords.extend(nouns)
+                
+                if intent_keywords and items_count > 0:
+                    # 检查返回的数据是否包含意图关键词
+                    items = response.get('items', []) if isinstance(response, dict) else response
+                   
+                    if items and isinstance(items, list) and isinstance(items[0], dict):
+                        matched_count = 0
+                        # 检查所有字符串类型的字段
+                        for item in items:
+                            item_matched = False
+                            for field_name, field_value in item.items():
+                                if isinstance(field_value, str):
+                                    field_lower = field_value.lower()
+                                    for keyword in intent_keywords:
+                                        if keyword.lower() in field_lower:
+                                            item_matched = True
+                                            break
+                                if item_matched:
+                                    break
+                            if item_matched:
+                                matched_count += 1
+                        
+                        output_info['intent_match'] = {
+                            'keywords': intent_keywords[:3],  # 只显示前3个关键词
+                            'matched': matched_count,
+                            'total': len(items)
+                        }
+                        
+                        if matched_count == 0 and step_num < len(steps):
+                            # 只有不是最后一步且没有匹配时才警告
+                            step_warning = (step_warning + "; " if step_warning else "") + \
+                                f"返回的 {len(items)} 条数据中没有匹配意图关键词 {intent_keywords[:2]} 的记录"
+                            step_status = 'warning'
+                            state['messages'].append(f"[验证步骤] ⚠️ 数据匹配检查: 无匹配 {intent_keywords[:2]} 的记录")
                 
                 validation_results.append({
                     'step': step_num,
@@ -709,11 +819,173 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
     state['plan_fix_count'] = plan_fix_count
     
     intent = state['intent']
-    api_summary = state['api_summary']
     execution_plan = state.get('execution_plan', {})
     validation_context = state.get('steps_validation_context', '')
+    validation_results = state.get('steps_validation_results', [])
     
-    state['messages'].append(f"[修正计划] 根据验证结果修正执行计划 (第 {plan_fix_count} 次)...")
+    state['messages'].append(f"\n{'='*50}")
+    state['messages'].append(f"[修正计划] 🔄 第 {plan_fix_count} 次修正")
+    state['messages'].append(f"{'='*50}")
+    
+    # 分析失败原因
+    failed_steps = []
+    error_types = set()
+    for result in validation_results:
+        if result.get('status') == 'failed':
+            step_num = result.get('step', '?')
+            path = result.get('path', '')
+            error = result.get('error', '')
+            failed_steps.append((step_num, path, error))
+            if '404' in error:
+                error_types.add('404')
+            elif '422' in error:
+                error_types.add('422')
+            elif '500' in error:
+                error_types.add('500')
+            elif '400' in error:
+                error_types.add('400')
+    
+    # 显示失败分析
+    if failed_steps:
+        state['messages'].append(f"[修正计划] 📋 失败步骤分析:")
+        for step_num, path, error in failed_steps:
+            error_short = error[:100] + '...' if len(error) > 100 else error
+            state['messages'].append(f"[修正计划]   步骤{step_num}: {path}")
+            state['messages'].append(f"[修正计划]     错误: {error_short}")
+    
+    # 重新获取 API 信息（每次修正都重新获取，确保 AI 有完整的信息）
+    api_client = state.get('api_client')
+    api_summary = state['api_summary']
+    
+    if api_client:
+        state['messages'].append(f"[修正计划] 🔍 重新加载 API 端点信息...")
+        
+        # 获取完整的 API 紧凑列表
+        full_compact_summary = api_client.get_api_summary_compact()
+        
+        # 从执行计划和失败路径提取相关的 tag/分类
+        related_path_parts = set()
+        for step in execution_plan.get('steps', []):
+            api = step.get('api', {})
+            path = api.get('path', '')
+            if path:
+                parts = path.strip('/').split('/')
+                if len(parts) >= 3:
+                    related_path_parts.add(parts[2])
+        
+        # #region agent log [假设F: 修正计划时的 tag 匹配]
+        import json as _json
+        _available_tags = list(api_client._endpoints_by_tag.keys())[:10]
+        _debug_fix = {'related_path_parts': list(related_path_parts), 'available_tags': _available_tags, 'plan_fix_count': plan_fix_count}
+        with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _f: _f.write(_json.dumps({'hypothesisId':'F','location':'script_generator.py:fix_execution_plan','message':'Tag匹配输入','data':_debug_fix,'timestamp':__import__('time').time()}, ensure_ascii=False)+'\n')
+        # #endregion
+        
+        # 获取相关分类的详细 API
+        expanded_api_info = []
+        matched_tags = []
+        
+        # 路径关键词 -> 可能的 Tag 名称映射（支持中英文）
+        # 后端 tags 有两种风格：router.py 默认的 Core-* 和 API 端点覆盖的中文 tag
+        path_tag_mapping = {
+            # 核心业务模块
+            'user': ['Core-User'],
+            'role': ['Core-Role'],
+            'auth': ['Core-Auth'],
+            'login': ['Core-Auth', 'Core-LoginLog'],
+            'permission': ['Core-Permission'],
+            'dept': ['Core-Dept'],
+            'post': ['Core-Post'],
+            'menu': ['Core-Menu'],
+            # 字典模块（有中文 tag 覆盖）
+            'dict': ['Core-Dict', 'Core-DictItem', '字典管理', '字典项管理'],
+            'dict_item': ['Core-DictItem', '字典项管理'],
+            # 表查询模块（中文 tag）
+            'table-query': ['Core-TableQuery', '表查询管理'],
+            'tablequery': ['Core-TableQuery', '表查询管理'],
+            # 问卷模块（中文 tag）
+            'survey': ['Core-Survey', '问卷管理'],
+            # 外键元数据（中文 tag）
+            'foreignkey': ['Core-ForeignKey', '外键关系元数据'],
+            # 文件管理
+            'file': ['Core-FileManager'],
+            'file_manager': ['Core-FileManager'],
+            # 监控模块
+            'server': ['Core-ServerMonitor'],
+            'redis': ['Core-RedisMonitor', 'Core-RedisManager'],
+            'database': ['Core-DatabaseMonitor', 'Core-DatabaseManager'],
+            # OAuth
+            'oauth': ['Core-OAuth'],
+            # 定时任务
+            'scheduler': ['Scheduler'],
+        }
+        
+        for path_part in related_path_parts:
+            # 方法1: 通过映射表匹配
+            path_key = path_part.lower().replace('-', '')
+            for key, possible_tags in path_tag_mapping.items():
+                if key.replace('-', '') in path_key or path_key in key.replace('-', ''):
+                    for possible_tag in possible_tags:
+                        for actual_tag in api_client._endpoints_by_tag.keys():
+                            if possible_tag.lower() in actual_tag.lower() or actual_tag.lower() in possible_tag.lower():
+                                if actual_tag not in matched_tags:
+                                    matched_tags.append(actual_tag)
+            
+            # 方法2: 通过 API 路径反向查找 tag
+            for tag, endpoints in api_client._endpoints_by_tag.items():
+                for ep in endpoints:
+                    if path_part.lower() in ep.path.lower():
+                        if tag not in matched_tags:
+                            matched_tags.append(tag)
+                        break
+        
+        # 获取匹配 tag 的详细信息
+        for tag in matched_tags:
+            tag_detail = api_client.get_tag_endpoints_summary(tag)
+            if tag_detail:
+                expanded_api_info.append(f"### {tag}\n{tag_detail}")
+        
+        # #region agent log [假设F: 匹配结果]
+        import json as _json
+        _debug_match_result = {'matched_tags': matched_tags, 'expanded_api_info_count': len(expanded_api_info)}
+        with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _f: _f.write(_json.dumps({'hypothesisId':'F','location':'script_generator.py:fix_execution_plan:match_result','message':'Tag匹配结果','data':_debug_match_result,'timestamp':__import__('time').time()}, ensure_ascii=False)+'\n')
+        # #endregion
+        
+        if matched_tags:
+            state['messages'].append(f"[修正计划] 📂 相关 API 分类: {', '.join(matched_tags)}")
+        
+        # 如果有 404 错误，直接列出相关分类的所有 API 路径
+        if '404' in error_types:
+            state['messages'].append(f"[修正计划] ⚠️ 检测到 404 错误，以下是可用的 API 路径:")
+            # 列出相关分类的具体 API 路径
+            for tag in matched_tags[:3]:
+                endpoints = api_client._endpoints_by_tag.get(tag, [])
+                state['messages'].append(f"[修正计划]   【{tag}】:")
+                for ep in endpoints[:8]:
+                    state['messages'].append(f"[修正计划]     {ep.method} {ep.path}")
+        
+        if expanded_api_info:
+            # 在 API Summary 中突出显示 404 错误提示
+            api_404_warning = ""
+            if '404' in error_types:
+                api_404_warning = """
+⚠️ **重要提示**: 你之前使用的 API 路径不存在！
+请**只使用**下面列表中存在的 API 路径，不要自己构造或猜测路径！
+
+"""
+            api_summary = f"""## 完整 API 概览
+
+{full_compact_summary}
+{api_404_warning}
+## 相关分类详细 API（包含参数说明）
+
+{''.join(expanded_api_info[:5])}
+"""
+        else:
+            # 如果没有匹配到相关分类，提供完整概览
+            api_summary = f"""## 完整 API 概览
+
+{full_compact_summary}
+"""
     
     prompt = f"""你是一个 API 调用规划专家。之前的执行计划在验证时失败了，请根据错误信息修正计划。
 
@@ -728,30 +1000,46 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
 ## 步骤验证结果
 {validation_context}
 
-## 可用的 API（摘要）
-{api_summary[:5000]}
+## 可用的 API
+{api_summary[:8000]}
 
 ## 修正要求
 
-1. 分析失败原因：API 路径错误？参数错误？
-2. 根据 API 摘要找到正确的 API 路径
+1. **仔细分析失败原因**：API 路径错误？参数错误？数据不匹配？
+2. **严格使用 API 列表中存在的路径**：不要猜测或构造路径！
 3. 修正参数格式
-4. 输出修正后的完整执行计划
+4. **添加 search_keywords**：指定每个步骤返回数据应包含的关键词，用于验证数据是否匹配
+5. 输出修正后的完整执行计划
 
 ## 常见问题和解决方案
 
-1. **404 错误**：API 路径不存在，需要从 API 摘要中找到正确路径
+1. **404 错误**：API 路径不存在！**必须**从 API 列表中找到真实存在的路径，不要自己构造
 2. **422 错误**：参数格式错误，检查必填参数和参数类型
 3. **400 错误**：请求参数不合法，检查参数值
+4. **数据不匹配警告**：返回的数据中没有匹配关键词的记录，需要调整查询条件或换用其他 API
 
 ## 输出格式
 
-请以 JSON 格式输出修正后的执行计划（与原格式相同）：
+请以 JSON 格式输出修正后的执行计划：
 
 ```json
 {{
-  "intent_analysis": {{...}},
-  "steps": [...],
+  "intent_analysis": {{
+    "goal": "目标",
+    "target_data": "目标数据",
+    "conditions": ["条件"],
+    "search_keywords": ["用于验证的关键词"]
+  }},
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "描述",
+      "api": {{"method": "GET/POST", "path": "/api/xxx"}},
+      "params": {{"query_params": {{}}, "body": {{}}}},
+      "data_to_extract": ["字段"],
+      "search_keywords": ["此步骤返回数据应包含的关键词"]
+    }}
+  ],
   "final_output": {{...}}
 }}
 ```
@@ -777,10 +1065,21 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
         state['plan_json'] = json.dumps(new_plan, ensure_ascii=False, indent=2)
         state['messages'].append("[修正计划] ✅ 执行计划已修正")
         
-        # 打印修正后的步骤
+        # 打印修正后的详细执行计划
+        state['messages'].append(f"[修正计划] 📋 新执行计划 ({len(new_plan.get('steps', []))} 个步骤):")
         for i, step in enumerate(new_plan.get('steps', []), 1):
-            api = step.get('api', {})
-            state['messages'].append(f"[修正计划]   步骤{i}: {api.get('method')} {api.get('path')}")
+            api = step.get('api', {}) or {}
+            params = step.get('params', {}) or {}
+            desc = step.get('description', '')
+            state['messages'].append(f"[修正计划]   步骤{i}: {desc[:50] if desc else 'N/A'}")
+            state['messages'].append(f"[修正计划]     API: {api.get('method', '?')} {api.get('path', '?')}")
+            query_params = params.get('query_params')
+            body = params.get('body')
+            if query_params:
+                state['messages'].append(f"[修正计划]     Query: {json.dumps(query_params, ensure_ascii=False)[:80]}")
+            if body:
+                body_str = json.dumps(body, ensure_ascii=False)
+                state['messages'].append(f"[修正计划]     Body: {body_str[:80]}{'...' if len(body_str) > 80 else ''}")
         
     except Exception as e:
         state['messages'].append(f"[修正计划] ❌ 修正失败: {e}")
@@ -1221,20 +1520,28 @@ def should_continue(state: ScriptGeneratorState) -> str:
     """条件路由：决定是继续修正还是结束"""
     # 执行成功且验证通过才算真正成功
     validation_passed = state.get('validation_passed', True)
+    execution_success = state.get('execution_success', False)
     
-    if state['execution_success'] and validation_passed:
+    if execution_success and validation_passed:
+        state['messages'].append(f"[路由] 执行成功且验证通过，结束流程")
         return "end"
     
     iteration = state.get('iteration', 0)
     max_iter = state.get('max_iterations', 3)
     auto_fix = state.get('auto_fix', True)
     
+    # 记录调试信息
+    state['messages'].append(f"[路由] 状态: exec={execution_success}, valid={validation_passed}, iter={iteration}/{max_iter}, auto_fix={auto_fix}")
+    
     if iteration >= max_iter:
+        state['messages'].append(f"[路由] 达到最大迭代次数，结束流程")
         return "end"
     
     if auto_fix:
+        state['messages'].append(f"[路由] 准备第 {iteration + 1} 次迭代修复...")
         return "generate"
     
+    state['messages'].append(f"[路由] auto_fix 未启用，结束流程")
     return "end"
 
 
@@ -1555,6 +1862,7 @@ class ScriptGenerator:
         initial_state: ScriptGeneratorState = {
             "intent": intent,
             "api_summary": api_summary,
+            "api_client": self.api_client,  # 用于修正计划时扩展搜索
             "debug_mode": self.debug_mode,
             "auto_fix": self.auto_fix,
             "max_iterations": self.max_iterations,
@@ -1716,10 +2024,12 @@ class ScriptGenerator:
                     if total > 0:
                         # 从验证结果中构建翻页信息
                         # 尝试从 step input 中获取 page/pageSize
-                        step_input = step_result.get("input", {})
-                        query_params = step_input.get("query_params", {})
-                        page = query_params.get("page", 1)
-                        page_size = query_params.get("pageSize", 10)
+                        step_input = step_result.get("input", {}) or {}
+                        query_params = step_input.get("query_params") or {}
+                        body = step_input.get("body") or {}
+                        # page 和 page_size 可能在 query_params 或 body 中
+                        page = query_params.get("page") or body.get("page") or 1
+                        page_size = query_params.get("pageSize") or query_params.get("page_size") or body.get("page_size") or body.get("pageSize") or 10
                         pagination = PaginationInfo(
                             page=page,
                             page_size=page_size,

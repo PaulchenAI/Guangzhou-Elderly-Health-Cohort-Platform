@@ -848,9 +848,12 @@ async def cmd_generate(args):
     info_print("=" * 60)
     info_print(f"生成多步骤脚本: '{intent}'")
     info_print(f"🔧 模式: LangGraph 工作流")
+    # 处理 --no-auto-fix 标志
+    auto_fix_enabled = args.auto_fix and not getattr(args, 'no_auto_fix', False)
+    
     if args.debug:
         info_print(f"📝 Debug 输出已启用")
-    if args.auto_fix:
+    if auto_fix_enabled:
         info_print(f"🔄 自动迭代修正已启用 (最大 {args.max_iter} 次)")
     if no_save:
         info_print(f"📝 历史记录保存已禁用")
@@ -868,15 +871,17 @@ async def cmd_generate(args):
         generator = ScriptGenerator(
             api_client=client,
             debug_mode=args.debug,
-            auto_fix=args.auto_fix,
-            max_iterations=args.max_iter if hasattr(args, 'max_iter') else 3,
+            auto_fix=auto_fix_enabled,
+            max_iterations=args.max_iter if hasattr(args, 'max_iter') else 10,
             save_history=not no_save,
             output_format=output_format,
         )
         
-        # auto_fix 默认启用，用于执行计划验证阶段的修正
-        # 如果不使用 -x 参数，脚本执行后不进行迭代修正
-        if not args.execute:
+        # auto_fix 默认启用，同时控制：
+        # 1. 执行计划验证阶段的修正
+        # 2. 脚本执行后的迭代修正
+        # 只有明确禁用 auto_fix 时才限制迭代次数为 1
+        if not auto_fix_enabled:
             generator.max_iterations = 1
         
         # 运行 LangGraph 工作流
@@ -1033,11 +1038,21 @@ async def cmd_generate(args):
                 print(formatted)
             
             # 显示过程消息
-            if args.verbose and result['messages']:
+            # 当有迭代修正时（plan_fix_count > 0 或 iterations > 1）始终显示
+            has_iterations = result.get('plan_fix_count', 0) > 0 or result.get('iterations', 0) > 1
+            show_messages = args.verbose or not result['success'] or has_iterations
+            if show_messages and result['messages']:
                 print("\n📋 工作流日志:")
                 print("-" * 40)
+                # 过滤显示关键消息
+                key_prefixes = [
+                    '[路由]', '[调试]', '[完成]', '[结束]', '[错误]', 
+                    '[验证]', '[修正计划]', '[验证步骤]', '[计划]', '[生成]', '[执行]'
+                ]
                 for msg in result['messages']:
-                    print(f"  {msg}")
+                    # verbose 模式显示所有，否则只显示关键消息
+                    if args.verbose or any(prefix in msg for prefix in key_prefixes):
+                        print(f"  {msg}")
             
             # 显示验证结果
             if 'validation_passed' in result:
@@ -1052,11 +1067,18 @@ async def cmd_generate(args):
             if result.get('history_reused'):
                 print(f"\n📚 历史复用: ✅ 使用了历史脚本")
             
+            # 显示迭代统计
+            total_iter = result.get('plan_fix_count', 0) + result['iterations']
+            print(f"\n📊 迭代统计:")
+            print(f"   计划修正: {result.get('plan_fix_count', 0)} 次")
+            print(f"   脚本迭代: {result['iterations']} 次")
+            print(f"   总计: {total_iter} 次")
+            
             # 显示最终状态
             if result['success']:
                 print("\n✅ 脚本执行成功，结果已验证")
             else:
-                print(f"\n⚠️ 脚本执行或验证失败 (迭代 {result['iterations']} 次)")
+                print(f"\n⚠️ 脚本执行或验证失败")
             
             if not args.execute:
                 print(f"\n提示: 使用 -x 参数执行脚本，使用 -d 启用调试模式")
@@ -1150,7 +1172,8 @@ def main():
     parser_generate.add_argument('-o', '--output', help='保存脚本到文件')
     parser_generate.add_argument('-x', '--execute', action='store_true', help='生成后立即执行')
     parser_generate.add_argument('-d', '--debug', action='store_true', help='启用调试模式（添加详细输出）')
-    parser_generate.add_argument('--auto-fix', action='store_true', help='执行失败时自动迭代修正')
+    parser_generate.add_argument('--auto-fix', action='store_true', default=True, help='执行失败时自动迭代修正（默认启用）')
+    parser_generate.add_argument('--no-auto-fix', action='store_true', help='禁用自动迭代修正')
     parser_generate.add_argument('--max-iter', type=int, default=10, help='最大迭代次数（默认: 10）')
     parser_generate.add_argument('-v', '--verbose', action='store_true', help='显示详细信息')
     parser_generate.add_argument('--json', action='store_true', help='输出 JSON 格式结果')
