@@ -202,3 +202,42 @@
   - 根据执行结果确定状态（success/failed）
   - 创建并保存 `ExecutionRecord`
   - 添加异常处理，确保保存失败不影响主流程
+
+## 8. 验证阶段智能修正（2026-01-19 补充）
+
+- [x] 8.1 添加操作符格式说明
+  - 在 `get_base_context()` 的 LLM 提示词中添加操作符说明
+  - 明确支持的操作符：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `like`, `in`, `between`
+  - 明确禁止的符号：`=`, `==`, `!=`, `>`, `<` 等
+  - 影响文件：`AIagent/src/django_api/script_generator.py`
+
+- [x] 8.2 实现配置名保留机制
+  - 在 `field_help_section` 中添加配置名保留提示
+  - 使用醒目格式（`✅`、`🔴`）强调已验证的配置名
+  - 明确告知 LLM "不要更改为其他配置名"
+  - 影响文件：`AIagent/src/django_api/script_generator.py`
+
+- [x] 8.3 完善字段名映射表
+  - 在修正提示词中提供字段名与中文显示名的对照表
+  - 使用 Markdown 表格格式，便于 LLM 理解
+  - 在表格下方添加说明："过滤条件必须使用字段名（左列）"
+  - 影响文件：`AIagent/src/django_api/script_generator.py`
+
+- [x] 8.4 添加无效 HTTP 方法检测
+  - 定义有效 HTTP 方法集合：`GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`
+  - 在 `validate_steps` 中检测无效方法
+  - 无效方法的步骤直接跳过，不调用 API
+  - 记录跳过原因到验证结果
+  - 影响文件：`AIagent/src/django_api/script_generator.py`
+
+- [x] 8.5 修复路径参数传递
+  - 在 `call_api_by_path` 调用中添加 `path_params` 参数
+  - 从步骤的 `params.path_params` 中获取路径参数
+  - 支持 URL 中的变量替换（如 `/api/user/{id}` → `/api/user/123`）
+  - 影响文件：`AIagent/src/django_api/script_generator.py`
+
+- [x] 8.6 空结果处理时保留配置信息
+  - 当查询返回 0 条数据时，也获取配置的可用字段信息
+  - 避免 LLM 在第二次修正时因缺少字段信息而乱改配置名
+  - 添加提示："查询返回 0 条数据可能是数据库中没有匹配的记录，这是正常的"
+  - 影响文件：`AIagent/src/django_api/script_generator.py`

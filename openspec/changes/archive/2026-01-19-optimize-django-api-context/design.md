@@ -671,6 +671,101 @@ class QueryResult:
 - JSON 格式便于程序化处理、管道操作和集成
 - 支持环境变量配置默认格式，适应不同使用场景
 
+### 决策 9：验证阶段智能修正
+
+**方案**：在验证阶段提供详细的修正指导，帮助 LLM 正确修复错误
+
+#### 9.1 问题背景
+
+验证阶段常见的 LLM 错误：
+1. **操作符格式错误**：LLM 使用 `=`, `==`, `!=` 而不是 `eq`, `ne`, `like`
+2. **配置名乱改**：LLM 在修正时错误地更换配置名称
+3. **中文字段名**：LLM 使用中文显示名而不是英文字段名
+4. **无效 HTTP 方法**：LLM 生成 `NONE` 等无效方法
+5. **路径参数丢失**：`path_params` 未正确传递导致 URL 变量未替换
+
+#### 9.2 操作符格式说明
+
+```python
+# 在 LLM 提示词中添加操作符说明
+OPERATOR_GUIDE = """
+### 通用表查询
+- **POST /api/core/table-query/query** - 执行动态表查询
+  - filters 格式: [{"field": "字段名", "operator": "操作符", "value": "值"}]
+  - **⚠️ 操作符必须使用**: `eq`(等于), `ne`(不等于), `gt`(大于), `gte`(大于等于), 
+                          `lt`(小于), `lte`(小于等于), `like`(模糊匹配), 
+                          `in`(包含), `between`(范围)
+  - **❌ 不要使用**: `=`, `==`, `!=`, `>`, `<` 等符号
+"""
+```
+
+#### 9.3 配置名保留机制
+
+```python
+# 在字段帮助信息中强调保留配置名
+def build_field_help_section(config_name: str, fields: List[Tuple[str, str]]) -> str:
+    """构建字段帮助信息，强调保留配置名"""
+    section = f"""
+## ✅ 配置 '{config_name}' 已验证存在！请保持使用。
+
+**🔴 关键**: `config_name` 必须保持为 `"{config_name}"`，不要更改为其他配置名！
+
+### 该配置的可用过滤字段：
+
+| 字段名（使用这个） | 中文名（仅供参考） |
+|---|---|
+"""
+    for fname, flabel in fields:
+        section += f"| `{fname}` | {flabel} |\n"
+    
+    section += """
+**⚠️ 重要**:
+1. 过滤条件必须使用 **字段名**（左列），不能使用中文名！
+2. **操作符必须使用**: `eq`(等于), `ne`(不等于), `like`(模糊)，**不要用** `=`, `==`, `!=`
+"""
+    return section
+```
+
+#### 9.4 无效 HTTP 方法检测
+
+```python
+# 验证阶段跳过无效方法
+VALID_HTTP_METHODS = {'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'}
+
+async def validate_steps(steps: List[dict], ...):
+    for step in steps:
+        method = step.get('api', {}).get('method', 'GET').upper()
+        
+        if method not in VALID_HTTP_METHODS:
+            # 跳过无效方法，不调用 API
+            validation_results.append({
+                'step': step_num,
+                'status': 'skipped',
+                'message': f'跳过无效 HTTP 方法: {method}'
+            })
+            continue
+```
+
+#### 9.5 路径参数传递
+
+```python
+# 正确传递 path_params
+response = await client.call_api_by_path(
+    method=method,
+    path=path,
+    query_params=query_params,
+    body=body,
+    path_params=params.get('path_params', {})  # 添加路径参数
+)
+```
+
+**理由**：
+- 明确的操作符说明减少 LLM 猜测
+- 强调配置名保留避免无意义的修改尝试
+- 字段映射表帮助 LLM 正确选择字段名
+- 提前检测无效方法避免运行时崩溃
+- 正确传递路径参数支持带变量的 URL
+
 ## 风险 / 权衡
 
 | 风险 | 缓解措施 |
@@ -680,6 +775,8 @@ class QueryResult:
 | 历史脚本可能过时 | 检索时检查 API 版本兼容性 |
 | 失败记录可能误导 | 失败原因要明确分类，只避免相同类型的错误 |
 | 默认翻页可能不满足需求 | 用户可通过明确数目覆盖，或调整配置 |
+| LLM 修正时乱改配置名 | 在修正提示词中强调保留已验证的配置名 |
+| 操作符格式不统一 | 在提示词中明确支持的操作符列表 |
 
 ## 迁移计划
 
