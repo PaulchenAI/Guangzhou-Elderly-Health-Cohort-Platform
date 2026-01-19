@@ -659,7 +659,7 @@ def query_user(request, data: UserQueryIn):
     # 构建基础查询（优化关联查询）
     base_queryset = User.objects.filter(is_deleted=False).select_related('dept', 'manager').prefetch_related('post', 'core_roles')
     
-    # 执行动态查询
+    # 执行动态查询（包含字段级权限验证）
     items, total = dynamic_query(
         model=User,
         filters=data.filters,
@@ -667,7 +667,9 @@ def query_user(request, data: UserQueryIn):
         page=data.page,
         page_size=data.page_size,
         order_by=data.order_by or "-sys_create_datetime",
-        base_queryset=base_queryset
+        base_queryset=base_queryset,
+        module="user",
+        user=request.auth
     )
     
     # 转换为输出格式
@@ -691,11 +693,15 @@ def get_user_searchable_fields(request):
     - display_name: 模块显示名称
     - searchable_fields: 可搜索字段列表，每个字段包含 name、display_name、type
     
+    注意: 返回的字段列表会根据当前用户权限进行过滤。敏感字段（如手机号、邮箱）
+    需要相应权限才能查看和查询。
+    
     AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
     """
     return get_searchable_fields_response(
         module="user",
         display_name="用户管理",
-        searchable_fields=USER_SEARCHABLE_FIELDS
+        searchable_fields=USER_SEARCHABLE_FIELDS,
+        user=request.auth
     )
 

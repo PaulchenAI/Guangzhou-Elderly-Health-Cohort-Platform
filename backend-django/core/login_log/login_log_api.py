@@ -387,7 +387,9 @@ def query_login_log(request, data: LoginLogQueryIn):
         page=data.page,
         page_size=data.page_size,
         order_by=data.order_by or "-sys_create_datetime",
-        base_queryset=base_queryset
+        base_queryset=base_queryset,
+        module="login_log",
+        user=request.auth
     )
     
     result_items = [LoginLogSchemaOut.from_orm(item) for item in items]
@@ -405,10 +407,14 @@ def get_login_log_searchable_fields(request):
     """
     获取登录日志模块的可搜索字段列表
     
+    注意: 返回的字段列表会根据当前用户权限进行过滤。敏感字段（如登录IP）
+    需要相应权限才能查看和查询。
+    
     AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
     """
     return get_searchable_fields_response(
         module="login_log",
         display_name="登录日志",
-        searchable_fields=LOGIN_LOG_SEARCHABLE_FIELDS
+        searchable_fields=LOGIN_LOG_SEARCHABLE_FIELDS,
+        user=request.auth
     )

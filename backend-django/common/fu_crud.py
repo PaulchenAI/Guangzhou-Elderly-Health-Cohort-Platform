@@ -170,6 +170,153 @@ def import_data(request, model, scheme, data, import_fields):
 # 动态查询相关函数
 # =============================================================================
 
+# 字段权限缓存配置
+FIELD_PERMISSION_CACHE_KEY = "cache:field_permission:{module}"
+FIELD_PERMISSION_CACHE_TIMEOUT = 3600  # 1小时
+
+
+def get_field_permissions(module: str) -> Dict[str, str]:
+    """
+    获取模块的字段权限映射（从权限表查询）
+    
+    从权限表查询以 '{module}:query:' 开头的权限，
+    返回 {field_name: permission_code} 映射
+    
+    Args:
+        module: 模块名称（如 'user', 'login_log'）
+    
+    Returns:
+        字段权限映射，格式: {field_name: permission_code}
+    """
+    from django.core.cache import cache
+    
+    # 尝试从缓存获取
+    cache_key = FIELD_PERMISSION_CACHE_KEY.format(module=module)
+    result = cache.get(cache_key)
+    
+    if result is not None:
+        return result
+    
+    # 查询权限表
+    from core.permission.permission_model import Permission
+    
+    prefix = f"{module}:query:"
+    permissions = Permission.objects.filter(
+        code__startswith=prefix,
+        is_active=True
+    ).values_list('code', flat=True)
+    
+    # 提取字段名：user:query:mobile -> mobile
+    result = {
+        code.split(':')[-1]: code
+        for code in permissions
+    }
+    
+    # 缓存结果
+    cache.set(cache_key, result, FIELD_PERMISSION_CACHE_TIMEOUT)
+    
+    return result
+
+
+def filter_searchable_fields_by_permission(
+    searchable_fields: List[Dict],
+    module: str,
+    user
+) -> List[Dict]:
+    """
+    根据用户权限过滤可搜索字段
+    
+    逻辑：
+    - 如果权限表中**存在**该字段的权限记录，且用户**没有**该权限 → 隐藏字段
+    - 如果权限表中**不存在**该字段的权限记录 → 字段对所有人可见
+    - 如果用户**拥有**该权限 → 字段可见
+    
+    Args:
+        searchable_fields: 可搜索字段列表
+        module: 模块名称
+        user: 当前用户对象（需要有 has_permission 方法）
+    
+    Returns:
+        过滤后的可搜索字段列表
+    """
+    # 获取模块的字段权限映射
+    field_permissions = get_field_permissions(module)
+    
+    # 如果没有任何字段权限配置，返回所有字段
+    if not field_permissions:
+        return searchable_fields
+    
+    result = []
+    for field in searchable_fields:
+        field_name = field['name']
+        required_permission = field_permissions.get(field_name)
+        
+        # 无权限要求（权限表中未配置），或用户拥有该权限
+        if required_permission is None or user.has_permission(required_permission):
+            result.append(field)
+    
+    return result
+
+
+def validate_query_field_permissions(
+    filters: Optional[List],
+    module: str,
+    user
+) -> None:
+    """
+    验证查询中使用的字段是否有权限访问
+    
+    Args:
+        filters: 过滤条件列表
+        module: 模块名称
+        user: 当前用户对象
+    
+    Raises:
+        HttpError: 用户无权限查询某个字段
+    """
+    if not filters:
+        return
+    
+    # 获取模块的字段权限映射
+    field_permissions = get_field_permissions(module)
+    
+    # 如果没有任何字段权限配置，无需验证
+    if not field_permissions:
+        return
+    
+    for condition in filters:
+        field_name = condition.field
+        required_permission = field_permissions.get(field_name)
+        
+        # 如果该字段需要权限，且用户没有该权限
+        if required_permission and not user.has_permission(required_permission):
+            raise HttpError(
+                403, 
+                f"无权限查询字段: {field_name}。需要权限: {required_permission}"
+            )
+
+
+def invalidate_field_permission_cache(module: str = None) -> None:
+    """
+    清除字段权限缓存
+    
+    Args:
+        module: 模块名称，如果为 None 则清除所有模块的缓存
+    """
+    from django.core.cache import cache
+    
+    if module:
+        cache_key = FIELD_PERMISSION_CACHE_KEY.format(module=module)
+        cache.delete(cache_key)
+    else:
+        # 清除所有字段权限缓存
+        from django_redis import get_redis_connection
+        redis_conn = get_redis_connection('default')
+        keys = redis_conn.keys("cache:field_permission:*")
+        if keys:
+            redis_conn.delete(*keys)
+
+
 def validate_operator(operator: str) -> str:
     """
     验证操作符是否支持
@@ -280,7 +427,9 @@ def dynamic_query(
     page: int = 1,
     page_size: int = 20,
     order_by: Optional[str] = None,
-    base_queryset: Optional[QuerySet] = None
+    base_queryset: Optional[QuerySet] = None,
+    module: str = None,
+    user=None
 ) -> Tuple[List[Model], int]:
     """
     通用动态查询函数
@@ -293,10 +442,16 @@ def dynamic_query(
         page_size: 每页数量
         order_by: 排序字段（如 "-create_datetime"）
         base_queryset: 基础查询集（可选，用于预过滤）
+        module: 模块名称（可选，用于字段权限验证）
+        user: 当前用户对象（可选，用于字段权限验证）
     
     Returns:
         (查询结果列表, 总数)
     """
+    # 字段权限验证
+    if module and user:
+        validate_query_field_permissions(filters, module, user)
+    
     # 构建基础查询
     if base_queryset is not None:
         queryset = base_queryset
@@ -328,7 +483,8 @@ def dynamic_query(
 def get_searchable_fields_response(
     module: str,
     display_name: str,
-    searchable_fields: List[Dict]
+    searchable_fields: List[Dict],
+    user=None
 ) -> Dict:
     """
     构建可搜索字段响应
@@ -337,10 +493,17 @@ def get_searchable_fields_response(
         module: 模块名称
         display_name: 模块显示名称
         searchable_fields: 可搜索字段配置
+        user: 当前用户对象（可选，用于权限过滤）
     
     Returns:
         响应字典
     """
+    # 如果传入了用户对象，进行权限过滤
+    if user is not None:
+        searchable_fields = filter_searchable_fields_by_permission(
+            searchable_fields, module, user
+        )
+    
     return {
         "module": module,
         "display_name": display_name,

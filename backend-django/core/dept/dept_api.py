@@ -754,7 +754,9 @@ def query_dept(request, data: DeptQueryIn):
         page=data.page,
         page_size=data.page_size,
         order_by=data.order_by or "sort",
-        base_queryset=base_queryset
+        base_queryset=base_queryset,
+        module="dept",
+        user=request.auth
     )
     
     result_items = [DeptSchemaOut.from_orm(item) for item in items]
@@ -772,11 +774,14 @@ def get_dept_searchable_fields(request):
     """
     获取部门模块的可搜索字段列表
     
+    注意: 返回的字段列表会根据当前用户权限进行过滤。
+    
     AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
     """
     return get_searchable_fields_response(
         module="dept",
         display_name="部门管理",
-        searchable_fields=DEPT_SEARCHABLE_FIELDS
+        searchable_fields=DEPT_SEARCHABLE_FIELDS,
+        user=request.auth
     )
 

@@ -497,7 +497,9 @@ def query_permission(request, data: PermissionQueryIn):
         page=data.page,
         page_size=data.page_size,
         order_by=data.order_by or "-sys_create_datetime",
-        base_queryset=base_queryset
+        base_queryset=base_queryset,
+        module="permission",
+        user=request.auth
     )
     
     result_items = [PermissionSchemaOut.from_orm(item) for item in items]
@@ -515,10 +517,13 @@ def get_permission_searchable_fields(request):
     """
     获取权限模块的可搜索字段列表
     
+    注意: 返回的字段列表会根据当前用户权限进行过滤。
+    
     AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
     """
     return get_searchable_fields_response(
         module="permission",
         display_name="权限管理",
-        searchable_fields=PERMISSION_SEARCHABLE_FIELDS
+        searchable_fields=PERMISSION_SEARCHABLE_FIELDS,
+        user=request.auth
     )

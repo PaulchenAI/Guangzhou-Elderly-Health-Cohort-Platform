@@ -513,7 +513,9 @@ def query_post(request, data: PostQueryIn):
         page=data.page,
         page_size=data.page_size,
         order_by=data.order_by or "sort",
-        base_queryset=base_queryset
+        base_queryset=base_queryset,
+        module="post",
+        user=request.auth
     )
     
     result_items = [PostSchemaOut.from_orm(item) for item in items]
@@ -531,11 +533,14 @@ def get_post_searchable_fields(request):
     """
     获取岗位模块的可搜索字段列表
     
+    注意: 返回的字段列表会根据当前用户权限进行过滤。
+    
     AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
     """
     return get_searchable_fields_response(
         module="post",
         display_name="岗位管理",
-        searchable_fields=POST_SEARCHABLE_FIELDS
+        searchable_fields=POST_SEARCHABLE_FIELDS,
+        user=request.auth
     )
 

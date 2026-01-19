@@ -1546,6 +1546,60 @@ def get_user_searchable_fields(request):
 2. **构造查询条件**：根据返回的字段信息构造 `filters` 数组
 3. **使用正确的操作符**：字符串字段用 `like`，数值字段用 `eq/gt/lt`，日期字段用 `between`
 
+#### 9.4.9 字段级权限控制
+
+动态查询接口支持字段级权限控制，可以限制敏感字段的访问。
+
+##### 权限控制逻辑
+
+- **权限表中存在字段权限记录，且用户没有该权限** → 字段被隐藏，不可查询
+- **权限表中不存在字段权限记录** → 字段对所有人可见
+- **用户拥有该权限** → 字段可见可查询
+
+##### 权限编码规范
+
+```
+{module}:query:{field_name}
+```
+
+示例：
+| 权限编码 | 说明 | 保护字段 |
+|---------|------|---------|
+| `user:query:mobile` | 用户模块查询手机号 | user.mobile |
+| `user:query:email` | 用户模块查询邮箱 | user.email |
+| `login_log:query:login_ip` | 登录日志查询IP | login_log.login_ip |
+
+##### 行为说明
+
+1. **searchable-fields 接口**：返回的字段列表会根据当前用户权限自动过滤，只显示用户有权访问的字段。
+
+2. **query 接口**：如果用户尝试查询无权限访问的字段，将返回 403 错误：
+   ```json
+   {
+     "detail": "无权限查询字段: mobile。需要权限: user:query:mobile"
+   }
+   ```
+
+##### 添加新的字段权限
+
+要为新字段添加权限控制，只需在 `core_permission` 表中添加相应的权限记录：
+
+```python
+# 在 Django 迁移中添加
+Permission.objects.create(
+    name='查询用户手机号',
+    code='user:query:mobile',
+    menu=user_menu,
+    permission_type=2,  # 数据权限
+    description='允许在用户动态查询中使用手机号字段',
+    is_active=True,
+)
+```
+
+##### 缓存说明
+
+字段权限映射会被缓存 1 小时（`cache:field_permission:{module}`），权限变更后可调用 `invalidate_field_permission_cache(module)` 清除缓存。
+
 ---
 
 ## 10. 错误处理
