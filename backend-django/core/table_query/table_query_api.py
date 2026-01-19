@@ -1154,9 +1154,29 @@ def export_join_query(request, data: JoinExportParams):
     # 生成文件名
     filename = f"{parse_result.primary_table}_联合查询"
     
+    # 构建字段别名到字段元信息的映射
+    field_meta_map = {fm.alias: fm for fm in field_meta}
+    
+    # 根据字段元信息生成中文表头，格式与前端保持一致
+    # 如果有 field_comment，使用 "中文名/字段名 (表名)"，否则使用 "字段名 (表名)"
+    headers = []
+    for col_alias in columns:
+        if col_alias in field_meta_map:
+            fm = field_meta_map[col_alias]
+            if fm.field_comment:
+                # 有中文注释：中文名/字段名 (表名)
+                header = f"{fm.field_comment}/{fm.original_field} ({fm.original_table})"
+            else:
+                # 无中文注释：字段名 (表名)
+                header = f"{fm.original_field} ({fm.original_table})"
+        else:
+            # 如果找不到元信息，使用原始列名（兜底）
+            header = col_alias
+        headers.append(header)
+    
     # 生成导出文件
     if data.format == "csv":
-        return _export_csv(filename, columns, rows)
+        return _export_csv(filename, headers, rows)
     else:
-        return _export_excel(filename, columns, rows)
+        return _export_excel(filename, headers, rows)
 
