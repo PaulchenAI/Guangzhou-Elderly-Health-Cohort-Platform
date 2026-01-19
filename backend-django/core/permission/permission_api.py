@@ -13,9 +13,9 @@ from ninja import Router, Query
 from ninja.errors import HttpError
 from ninja.pagination import paginate
 
-from common.fu_crud import create, delete, update, retrieve, batch_delete
+from common.fu_crud import create, delete, update, retrieve, batch_delete, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from common.fu_cache import PermissionCacheManager, CacheManager, CacheKeyPrefix
 from core.permission.permission_model import Permission
 from core.permission.permission_service import PermissionGenerator
@@ -33,6 +33,8 @@ from core.permission.permission_schema import (
     PermissionBatchUpdateStatusOut,
     PermissionBatchCreateFromRoutesIn,
     PermissionBatchCreateFromRoutesOut,
+    PermissionQueryIn,
+    PERMISSION_SEARCHABLE_FIELDS,
 )
 
 router = Router()
@@ -470,3 +472,53 @@ def auto_scan_and_generate_permissions(request, dry_run: bool = Query(False)):
     result = PermissionGenerator.auto_generate_permissions(ninja_api, dry_run=dry_run)
     return result
 
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/permission/query", response=DynamicQueryResult, tags=["权限管理"], summary="动态查询权限")
+def query_permission(request, data: PermissionQueryIn):
+    """
+    动态查询权限数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /permission/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = Permission.objects.filter(is_deleted=False).select_related('menu')
+    
+    items, total = dynamic_query(
+        model=Permission,
+        filters=data.filters,
+        searchable_fields=PERMISSION_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "-sys_create_datetime",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [PermissionSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/permission/searchable-fields", response=SearchableFieldsResult, tags=["权限管理"], summary="获取权限可搜索字段")
+def get_permission_searchable_fields(request):
+    """
+    获取权限模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="permission",
+        display_name="权限管理",
+        searchable_fields=PERMISSION_SEARCHABLE_FIELDS
+    )

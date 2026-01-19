@@ -12,9 +12,9 @@ from ninja import Router, Query
 from ninja.errors import HttpError
 from ninja.pagination import paginate
 
-from common.fu_crud import create, delete, update, batch_delete
+from common.fu_crud import create, delete, update, batch_delete, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from common.utils.list_to_tree import list_to_tree
 from core.dept.dept_model import Dept
 from core.dept.dept_schema import (
@@ -32,6 +32,8 @@ from core.dept.dept_schema import (
     DeptUserSchema,
     DeptUserIn,
     DeptUserFilter,
+    DeptQueryIn,
+    DEPT_SEARCHABLE_FIELDS,
 )
 
 router = Router()
@@ -726,4 +728,55 @@ def get_dept_by_code(request, code: str):
         return dept
     
     raise HttpError(404, f"未找到编码匹配 '{code}' 的部门")
+
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/dept/query", response=DynamicQueryResult, tags=["部门管理"], summary="动态查询部门")
+def query_dept(request, data: DeptQueryIn):
+    """
+    动态查询部门数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /dept/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = Dept.objects.filter(is_deleted=False)
+    
+    items, total = dynamic_query(
+        model=Dept,
+        filters=data.filters,
+        searchable_fields=DEPT_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "sort",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [DeptSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/dept/searchable-fields", response=SearchableFieldsResult, tags=["部门管理"], summary="获取部门可搜索字段")
+def get_dept_searchable_fields(request):
+    """
+    获取部门模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="dept",
+        display_name="部门管理",
+        searchable_fields=DEPT_SEARCHABLE_FIELDS
+    )
 

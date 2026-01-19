@@ -14,9 +14,9 @@ from ninja import Router, Query
 from ninja.errors import HttpError
 from ninja.pagination import paginate
 
-from common.fu_crud import create, delete, update
+from common.fu_crud import create, delete, update, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from common.utils.list_to_tree import list_to_route_v5
 from common.fu_cache import MenuCacheManager, CacheManager, CacheKeyPrefix
 from core.menu.menu_model import Menu
@@ -37,6 +37,8 @@ from core.menu.menu_schema import (
     MenuCheckNameIn,
     MenuCheckPathIn,
     MenuCheckOut,
+    MenuQueryIn,
+    MENU_SEARCHABLE_FIELDS,
 )
 
 router = Router()
@@ -585,4 +587,53 @@ def move_menu(request, menu_id: str, new_parent_id: str = None):
     return response_success("移动成功")
 
 
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/menu/query", response=DynamicQueryResult, tags=["菜单管理"], summary="动态查询菜单")
+def query_menu(request, data: MenuQueryIn):
+    """
+    动态查询菜单数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /menu/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = Menu.objects.filter(is_deleted=False)
+    
+    items, total = dynamic_query(
+        model=Menu,
+        filters=data.filters,
+        searchable_fields=MENU_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "sort",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [MenuSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/menu/searchable-fields", response=SearchableFieldsResult, tags=["菜单管理"], summary="获取菜单可搜索字段")
+def get_menu_searchable_fields(request):
+    """
+    获取菜单模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="menu",
+        display_name="菜单管理",
+        searchable_fields=MENU_SEARCHABLE_FIELDS
+    )
 

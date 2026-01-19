@@ -3,14 +3,43 @@
 """
 Dept Schema - 部门数据验证模式
 """
-from typing import Optional, List
+from typing import Optional, List, Any
 from ninja import ModelSchema, Field, Schema
 from pydantic import field_validator
 
 from common.fu_model import exclude_fields
-from common.fu_schema import FuFilters
+from common.fu_schema import FuFilters, FilterCondition
 from core.dept.dept_model import Dept
 
+
+# =============================================================================
+# 动态查询相关 Schema
+# =============================================================================
+
+# 部门模块可搜索字段定义
+DEPT_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "部门ID", "type": "string"},
+    {"name": "name", "display_name": "部门名称", "type": "string"},
+    {"name": "code", "display_name": "部门编码", "type": "string"},
+    {"name": "dept_type", "display_name": "部门类型", "type": "string"},
+    {"name": "status", "display_name": "状态", "type": "boolean"},
+    {"name": "parent_id", "display_name": "父部门ID", "type": "string"},
+    {"name": "level", "display_name": "层级", "type": "integer"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class DeptQueryIn(Schema):
+    """部门动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+
+
+# =============================================================================
+# 原有 Schema
+# =============================================================================
 
 class DeptFilters(FuFilters):
     """部门过滤器"""

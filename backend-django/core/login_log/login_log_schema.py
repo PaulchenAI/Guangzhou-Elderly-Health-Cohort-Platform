@@ -3,15 +3,45 @@
 """
 登录日志数据验证模式 - Login Log Schema
 """
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from ninja import ModelSchema, Field, Schema
 from pydantic import field_validator
 
 from common.fu_model import exclude_fields
-from common.fu_schema import FuFilters
+from common.fu_schema import FuFilters, FilterCondition
 from core.login_log.login_log_model import LoginLog
 
+
+# =============================================================================
+# 动态查询相关 Schema
+# =============================================================================
+
+LOGIN_LOG_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "日志ID", "type": "string"},
+    {"name": "username", "display_name": "用户名", "type": "string"},
+    {"name": "user_id", "display_name": "用户ID", "type": "string"},
+    {"name": "status", "display_name": "登录状态", "type": "integer"},
+    {"name": "failure_reason", "display_name": "失败原因", "type": "integer"},
+    {"name": "login_ip", "display_name": "登录IP", "type": "string"},
+    {"name": "device_type", "display_name": "设备类型", "type": "string"},
+    {"name": "browser_type", "display_name": "浏览器类型", "type": "string"},
+    {"name": "os_type", "display_name": "操作系统", "type": "string"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class LoginLogQueryIn(Schema):
+    """登录日志动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+
+
+# =============================================================================
+# 原有 Schema
+# =============================================================================
 
 class LoginLogFilters(FuFilters):
     """登录日志过滤器"""

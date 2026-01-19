@@ -18,9 +18,9 @@ from ninja import Router, Query, File, Form
 from ninja.files import UploadedFile
 from ninja.pagination import paginate
 
-from common.fu_crud import retrieve
+from common.fu_crud import retrieve, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from core.file_manager.file_manager_model import FileManager
 from core.file_manager.file_manager_schema import (
     FileManagerSchemaOut,
@@ -31,6 +31,8 @@ from core.file_manager.file_manager_schema import (
     BatchDeleteSchemaIn,
     FileStorageConfigSchema,
     FileManagerSimpleSchemaOut,
+    FileManagerQueryIn,
+    FILE_MANAGER_SEARCHABLE_FIELDS,
 )
 from core.file_manager.storage_backends import get_storage_backend
 
@@ -562,3 +564,54 @@ def proxy_file(request, file_id: UUID, download: bool = Query(False)):
 
     except Exception as e:
         return HttpResponse(f"文件传输失败: {str(e)}", status=500)
+
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/file/query", response=DynamicQueryResult, tags=["文件管理"], summary="动态查询文件")
+def query_file(request, data: FileManagerQueryIn):
+    """
+    动态查询文件数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /file/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = FileManager.objects.filter(is_deleted=False)
+    
+    items, total = dynamic_query(
+        model=FileManager,
+        filters=data.filters,
+        searchable_fields=FILE_MANAGER_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "-sys_create_datetime",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [FileManagerSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/file/searchable-fields", response=SearchableFieldsResult, tags=["文件管理"], summary="获取文件可搜索字段")
+def get_file_searchable_fields(request):
+    """
+    获取文件管理模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="file_manager",
+        display_name="文件管理",
+        searchable_fields=FILE_MANAGER_SEARCHABLE_FIELDS
+    )

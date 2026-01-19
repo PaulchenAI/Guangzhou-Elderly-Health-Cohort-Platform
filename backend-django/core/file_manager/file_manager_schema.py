@@ -5,14 +5,42 @@
 # author: 臧成龙
 # QQ: 939589097
 
-from typing import List
+from typing import List, Optional, Any
 from ninja import ModelSchema, Schema, Field
 from pydantic import UUID4
 
 from common.fu_model import exclude_fields
-from common.fu_schema import FuFilters
+from common.fu_schema import FuFilters, FilterCondition
 from core.file_manager.file_manager_model import FileManager
 
+
+# =============================================================================
+# 动态查询相关 Schema
+# =============================================================================
+
+FILE_MANAGER_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "文件ID", "type": "string"},
+    {"name": "name", "display_name": "文件名", "type": "string"},
+    {"name": "type", "display_name": "类型", "type": "string"},
+    {"name": "file_ext", "display_name": "文件扩展名", "type": "string"},
+    {"name": "storage_type", "display_name": "存储类型", "type": "string"},
+    {"name": "is_public", "display_name": "是否公开", "type": "boolean"},
+    {"name": "parent_id", "display_name": "父文件夹ID", "type": "string"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class FileManagerQueryIn(Schema):
+    """文件管理动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+
+
+# =============================================================================
+# 原有 Schema
+# =============================================================================
 
 class FileManagerFilters(FuFilters):
     """文件管理过滤器"""

@@ -3,15 +3,47 @@
 """
 User Schema - 用户数据验证模式
 """
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import date
 from ninja import ModelSchema, Field, Schema
 from pydantic import field_validator
 
 from common.fu_model import exclude_fields
-from common.fu_schema import FuFilters
+from common.fu_schema import FuFilters, FilterCondition
 from core.user.user_model import User
 
+
+# =============================================================================
+# 动态查询相关 Schema
+# =============================================================================
+
+# 用户模块可搜索字段定义
+USER_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "用户ID", "type": "string"},
+    {"name": "name", "display_name": "姓名", "type": "string"},
+    {"name": "username", "display_name": "用户名", "type": "string"},
+    {"name": "email", "display_name": "邮箱", "type": "string"},
+    {"name": "mobile", "display_name": "手机号", "type": "string"},
+    {"name": "user_status", "display_name": "用户状态", "type": "integer"},
+    {"name": "user_type", "display_name": "用户类型", "type": "integer"},
+    {"name": "gender", "display_name": "性别", "type": "integer"},
+    {"name": "dept_id", "display_name": "部门ID", "type": "string"},
+    {"name": "is_active", "display_name": "是否激活", "type": "boolean"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class UserQueryIn(Schema):
+    """用户动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段，如: -sys_create_datetime")
+
+
+# =============================================================================
+# 原有 Schema
+# =============================================================================
 
 class UserFilters(FuFilters):
     """用户过滤器"""

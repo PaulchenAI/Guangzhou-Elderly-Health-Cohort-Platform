@@ -13,9 +13,9 @@ from ninja.errors import HttpError
 from ninja.pagination import paginate
 
 from application.settings import DEFAULT_PASSWORD
-from common.fu_crud import create, retrieve, delete, batch_delete
+from common.fu_crud import create, retrieve, delete, batch_delete, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from common.fu_user_query import get_manager_list
 from core.user.user_model import User
 from core.user.user_schema import (
@@ -36,6 +36,8 @@ from core.user.user_schema import (
     UserPermissionCheckIn,
     UserPermissionCheckOut,
     UserSubordinatesOut,
+    UserQueryIn,
+    USER_SEARCHABLE_FIELDS,
 )
 
 router = Router()
@@ -619,4 +621,81 @@ def import_user(request):
     """
     # TODO: 实现导入功能
     return response_success("导入功能待实现")
+
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/user/query", response=DynamicQueryResult, tags=["用户管理"], summary="动态查询用户")
+def query_user(request, data: UserQueryIn):
+    """
+    动态查询用户数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    请求体:
+    - page: 页码（默认 1）
+    - page_size: 每页数量（默认 20）
+    - filters: 过滤条件数组，格式 [{"field": "字段名", "operator": "操作符", "value": "值"}]
+    - order_by: 排序字段（如 "-sys_create_datetime" 表示按创建时间倒序）
+    
+    支持的操作符:
+    - eq: 等于
+    - ne: 不等于
+    - gt: 大于
+    - gte: 大于等于
+    - lt: 小于
+    - lte: 小于等于
+    - like: 模糊匹配
+    - in: 包含
+    - between: 范围
+    
+    示例:
+    {"page": 1, "page_size": 10, "filters": [{"field": "name", "operator": "like", "value": "张"}]}
+    
+    AI 调用建议: 先调用 /user/searchable-fields 获取可搜索字段列表。
+    """
+    # 构建基础查询（优化关联查询）
+    base_queryset = User.objects.filter(is_deleted=False).select_related('dept', 'manager').prefetch_related('post', 'core_roles')
+    
+    # 执行动态查询
+    items, total = dynamic_query(
+        model=User,
+        filters=data.filters,
+        searchable_fields=USER_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "-sys_create_datetime",
+        base_queryset=base_queryset
+    )
+    
+    # 转换为输出格式
+    result_items = [UserSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/user/searchable-fields", response=SearchableFieldsResult, tags=["用户管理"], summary="获取用户可搜索字段")
+def get_user_searchable_fields(request):
+    """
+    获取用户模块的可搜索字段列表
+    
+    返回:
+    - module: 模块名称
+    - display_name: 模块显示名称
+    - searchable_fields: 可搜索字段列表，每个字段包含 name、display_name、type
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="user",
+        display_name="用户管理",
+        searchable_fields=USER_SEARCHABLE_FIELDS
+    )
 

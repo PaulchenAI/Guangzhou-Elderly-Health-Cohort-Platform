@@ -11,9 +11,9 @@ from ninja import Router, Query
 from ninja.errors import HttpError
 from ninja.pagination import paginate
 
-from common.fu_crud import create, retrieve, delete
+from common.fu_crud import create, retrieve, delete, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
-from common.fu_schema import response_success
+from common.fu_schema import response_success, DynamicQueryResult, SearchableFieldsResult
 from core.role.role_model import Role
 from core.role.role_schema import (
     RoleSchemaOut,
@@ -34,6 +34,8 @@ from core.role.role_schema import (
     RoleMenuPermissionUpdateIn,
     RoleMenuListOut,
     MenuPermissionsOut,
+    RoleQueryIn,
+    ROLE_SEARCHABLE_FIELDS,
 )
 
 router = Router()
@@ -806,4 +808,61 @@ def get_role_by_code(request, code: str):
         return role
     
     raise HttpError(404, f"未找到编码匹配 '{code}' 的角色")
+
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/role/query", response=DynamicQueryResult, tags=["角色管理"], summary="动态查询角色")
+def query_role(request, data: RoleQueryIn):
+    """
+    动态查询角色数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    请求体:
+    - page: 页码（默认 1）
+    - page_size: 每页数量（默认 20）
+    - filters: 过滤条件数组，格式 [{"field": "字段名", "operator": "操作符", "value": "值"}]
+    - order_by: 排序字段
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /role/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = Role.objects.filter(is_deleted=False)
+    
+    items, total = dynamic_query(
+        model=Role,
+        filters=data.filters,
+        searchable_fields=ROLE_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "-priority",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [RoleSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/role/searchable-fields", response=SearchableFieldsResult, tags=["角色管理"], summary="获取角色可搜索字段")
+def get_role_searchable_fields(request):
+    """
+    获取角色模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="role",
+        display_name="角色管理",
+        searchable_fields=ROLE_SEARCHABLE_FIELDS
+    )
 

@@ -12,14 +12,17 @@ import logging
 from ninja import Router, Query
 from ninja.pagination import paginate
 
-from common.fu_crud import create, retrieve, delete, update
+from common.fu_crud import create, retrieve, delete, update, dynamic_query, get_searchable_fields_response
 from common.fu_pagination import MyPagination
+from common.fu_schema import DynamicQueryResult, SearchableFieldsResult
 from common.fu_cache import DictCacheManager, CacheStrategy, CacheManager, CacheKeyPrefix
 from core.dict_item.dict_item_model import DictItem
 from core.dict_item.dict_item_schema import (
     DictItemSchemaOut,
     DictItemSchemaIn,
     DictItemFilters,
+    DictItemQueryIn,
+    DICT_ITEM_SEARCHABLE_FIELDS,
 )
 from core.dict.dict_model import Dict
 
@@ -210,3 +213,53 @@ def list_dict_item_by_dict_code(request, code: str):
     
     return query_set
 
+
+# =============================================================================
+# 动态查询接口
+# =============================================================================
+
+@router.post("/dict-item/query", response=DynamicQueryResult, tags=["字典项管理"], summary="动态查询字典项")
+def query_dict_item(request, data: DictItemQueryIn):
+    """
+    动态查询字典项数据
+    
+    支持灵活的过滤条件和操作符选择。
+    
+    支持的操作符: eq, ne, gt, gte, lt, lte, like, in, between
+    
+    AI 调用建议: 先调用 /dict-item/searchable-fields 获取可搜索字段列表。
+    """
+    base_queryset = DictItem.objects.filter(is_deleted=False)
+    
+    items, total = dynamic_query(
+        model=DictItem,
+        filters=data.filters,
+        searchable_fields=DICT_ITEM_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "sort",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [DictItemSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/dict-item/searchable-fields", response=SearchableFieldsResult, tags=["字典项管理"], summary="获取字典项可搜索字段")
+def get_dict_item_searchable_fields(request):
+    """
+    获取字典项模块的可搜索字段列表
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    return get_searchable_fields_response(
+        module="dict_item",
+        display_name="字典项管理",
+        searchable_fields=DICT_ITEM_SEARCHABLE_FIELDS
+    )

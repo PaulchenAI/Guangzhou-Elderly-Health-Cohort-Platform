@@ -3,15 +3,44 @@
 """
 Post Schema - 岗位数据验证模式
 """
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from ninja import ModelSchema, Field, Schema, FilterSchema
 from pydantic import field_validator
 
 from common.fu_model import exclude_fields
-from common.fu_schema import FuFilters
+from common.fu_schema import FuFilters, FilterCondition
 from core.post.post_model import Post
 
+
+# =============================================================================
+# 动态查询相关 Schema
+# =============================================================================
+
+# 岗位模块可搜索字段定义
+POST_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "岗位ID", "type": "string"},
+    {"name": "name", "display_name": "岗位名称", "type": "string"},
+    {"name": "code", "display_name": "岗位编码", "type": "string"},
+    {"name": "post_type", "display_name": "岗位类型", "type": "integer"},
+    {"name": "post_level", "display_name": "岗位级别", "type": "integer"},
+    {"name": "status", "display_name": "状态", "type": "boolean"},
+    {"name": "dept_id", "display_name": "部门ID", "type": "string"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class PostQueryIn(Schema):
+    """岗位动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+
+
+# =============================================================================
+# 原有 Schema
+# =============================================================================
 
 class PostFilters(FuFilters):
     """岗位过滤器"""
