@@ -51,6 +51,13 @@
   - **失败时**：保存错误信息和失败原因
   - 支持通过 CLI 参数禁用保存 `--no-save`
 
+- [x] 2.5 **在 CLI 中集成自动保存功能**（2026-01-18 补充）
+  - 在 `cmd_generate` 函数中添加执行历史保存逻辑
+  - 提取执行结果中的 API 列表、状态、错误信息
+  - 创建 `ExecutionRecord` 并调用 `storage.save_execution()` 保存
+  - 保存失败不影响主流程执行
+  - 修复 `ScriptGenerator.__init__()` 的参数错误（移除不支持的 `save_history` 和 `output_format` 参数）
+
 ## 3. 历史指令 RAG 检索（强制优先）
 
 - [x] 3.1 **实现意图归一化**（关键功能）
@@ -174,3 +181,24 @@
   - 测试无数目查询的翻页行为
   - 测试不同输出格式切换
   - 测试"查询用户前10个"能匹配到"查询用户前5个"的历史
+
+## 7. 用户体验优化（2026-01-18 补充）
+
+- [x] 7.1 自动迭代修正默认启用
+  - 修改 `--auto-fix` 参数定义，使用 `action='store_const', const=True, default=True`
+  - 更新帮助信息和示例，说明默认启用
+  - 更新提示信息，说明可通过 `--no-auto-fix` 禁用
+
+- [x] 7.2 修复参数错误
+  - 修复 `ScriptGenerator.__init__()` 调用时传入不支持的参数错误
+  - 移除 `save_history` 和 `output_format` 参数
+  - 修复 `generate()` 方法调用时的不支持参数
+  - 修复 `format_output()` 方法不存在的调用
+
+- [x] 7.3 执行历史自动保存集成
+  - 在 `cli.py` 中导入执行历史相关模块
+  - 在 `cmd_generate` 中添加保存逻辑（生成完成后）
+  - 提取执行计划中的 API 列表
+  - 根据执行结果确定状态（success/failed）
+  - 创建并保存 `ExecutionRecord`
+  - 添加异常处理，确保保存失败不影响主流程
