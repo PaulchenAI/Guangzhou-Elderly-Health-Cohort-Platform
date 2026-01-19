@@ -323,7 +323,20 @@ class Command(BaseCommand):
                     field_type = 'string'
                 
                 # 决定是否可搜索和排序
-                is_searchable = field_type == 'string' and 'text' not in col_type and 'blob' not in col_type
+                # 优化 searchable 默认值：更多常用字段类型默认启用搜索
+                col_name_lower = col_name.lower()
+                # 1. 字符串类型（非 text/blob）：可搜索
+                is_string_searchable = field_type == 'string' and 'text' not in col_type and 'blob' not in col_type
+                # 2. 整数类型的 ID/编号字段：可搜索
+                is_id_field = field_type == 'integer' and any(kw in col_name_lower for kw in ['id', 'no', 'code', 'num'])
+                # 3. 主键字段：可搜索
+                is_primary_key = col_key == 'PRI'
+                # 4. 常用名称字段：可搜索（即使是其他类型）
+                is_name_field = any(kw in col_name_lower for kw in ['name', 'title', 'label', 'desc'])
+                # 5. 日期时间类型：可搜索（用于日期范围过滤）
+                is_datetime_searchable = field_type in ('datetime', 'date')
+                
+                is_searchable = is_string_searchable or is_id_field or is_primary_key or is_name_field or is_datetime_searchable
                 is_sortable = col_key == 'PRI' or field_type in ('integer', 'datetime', 'date')
                 
                 fields.append({

@@ -272,7 +272,23 @@ def build_where_clause(
         field_upper = field.upper()
         
         if field_upper not in searchable_fields:
-            raise HttpError(400, f"字段 {field} 不支持搜索")
+            # 获取所有可搜索字段列表，供调用方参考
+            available_fields = [
+                {
+                    "name": f['name'],
+                    "display_name": f.get('displayName', f.get('display_name', f['name'])),
+                    "type": f.get('type', 'string')
+                }
+                for f in config.config_json.get('fields', [])
+                if f.get('searchable', False)
+            ]
+            # HttpError 需要字符串参数，将字典序列化为 JSON
+            import json
+            error_detail = json.dumps({
+                "message": f"字段 {field} 不支持搜索",
+                "available_fields": available_fields
+            }, ensure_ascii=False)
+            raise HttpError(400, error_detail)
         
         # 验证操作符
         if operator not in ALLOWED_OPERATORS:
@@ -453,6 +469,78 @@ def get_config_by_name(request, name: str):
         return config
     
     raise HttpError(404, f"未找到名称匹配 '{name}' 的表查询配置")
+
+
+@router.get("/table-query/configs/{config_id}/searchable-fields", tags=["表查询管理"], summary="获取配置的可搜索字段")
+def get_searchable_fields(request, config_id: str):
+    """
+    获取指定配置的可搜索字段列表
+    
+    路径参数:
+    - config_id: 配置ID
+    
+    返回:
+    - config_name: 配置显示名称
+    - table_name: 数据库表名
+    - searchable_fields: 可搜索字段列表，每个字段包含 name、display_name、type
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    config = get_object_or_404(TableQueryConfig, id=config_id, is_deleted=False)
+    fields = config.config_json.get('fields', [])
+    searchable = [
+        {
+            "name": f['name'],
+            "display_name": f.get('displayName', f.get('display_name', f['name'])),
+            "type": f.get('type', 'string')
+        }
+        for f in fields if f.get('searchable', False)
+    ]
+    return {
+        "config_name": config.display_name,
+        "table_name": config.table_name,
+        "searchable_fields": searchable
+    }
+
+
+@router.get("/table-query/configs/by-name/{name}/searchable-fields", tags=["表查询管理"], summary="按名称获取可搜索字段")
+def get_searchable_fields_by_name(request, name: str):
+    """
+    按配置名称获取可搜索字段列表（支持模糊匹配）
+    
+    路径参数:
+    - name: 配置显示名称（支持模糊匹配）
+    
+    返回:
+    - config_name: 配置显示名称
+    - table_name: 数据库表名
+    - searchable_fields: 可搜索字段列表
+    
+    AI 调用建议: 直接传入用户提到的配置名称，无需先获取 ID。
+    """
+    # 优先精确匹配
+    config = TableQueryConfig.objects.filter(display_name=name, is_deleted=False).first()
+    if not config:
+        # 模糊匹配
+        config = TableQueryConfig.objects.filter(display_name__icontains=name, is_deleted=False).first()
+    
+    if not config:
+        raise HttpError(404, f"未找到名称匹配 '{name}' 的表查询配置")
+    
+    fields = config.config_json.get('fields', [])
+    searchable = [
+        {
+            "name": f['name'],
+            "display_name": f.get('displayName', f.get('display_name', f['name'])),
+            "type": f.get('type', 'string')
+        }
+        for f in fields if f.get('searchable', False)
+    ]
+    return {
+        "config_name": config.display_name,
+        "table_name": config.table_name,
+        "searchable_fields": searchable
+    }
 
 
 @router.put("/table-query/configs/{config_id}", response=TableQueryConfigSchemaOut, tags=["表查询管理"], summary="更新表查询配置")

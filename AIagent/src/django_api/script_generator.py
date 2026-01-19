@@ -1001,66 +1001,121 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
                     if err_detail:
                         try:
                             err_json = json.loads(err_detail)
-                            detail_msg = err_json.get('detail', '')
+                            detail_obj = err_json.get('detail', {})
+                            
+                            # 支持新的错误响应格式：detail 可能是字符串或对象
+                            if isinstance(detail_obj, dict):
+                                detail_msg = detail_obj.get('message', str(detail_obj))
+                                # 新格式：错误响应中直接包含 available_fields
+                                available_fields_from_error = detail_obj.get('available_fields', [])
+                            else:
+                                detail_msg = str(detail_obj)
+                                available_fields_from_error = []
+                            
                             failure_analysis += f"\n   错误详情: {detail_msg}"
                             
-                            # 如果是"非法的过滤字段"错误，尝试获取可用字段
-                            if '过滤字段' in detail_msg or 'filter' in detail_msg.lower():
-                                # 从请求体中获取 config_name
-                                body = step_input.get('body', {})
-                                config_name = body.get('config_name', '') if isinstance(body, dict) else ''
-                                
-                                if config_name:
-                                    log_realtime(f"📋 [字段检查] 获取 '{config_name}' 的可用字段...")
-                                    try:
-                                        # 尝试获取该配置的可用字段
-                                        from .client import OpenAPIAwareClient
-                                        from ..utils.config_models import Settings
+                            # 如果是"字段不支持搜索"错误
+                            is_field_error = '不支持搜索' in detail_msg or '过滤字段' in detail_msg or 'filter' in detail_msg.lower()
+                            
+                            if is_field_error:
+                                # 优先使用错误响应中的 available_fields
+                                if available_fields_from_error:
+                                    log_realtime(f"📋 [字段检查] 从错误响应中获取可用字段...")
+                                    available_fields = []
+                                    for f in available_fields_from_error:
+                                        if isinstance(f, dict):
+                                            fname = f.get('name', '')
+                                            flabel = f.get('display_name', f.get('title', fname))
+                                        else:
+                                            fname = str(f)
+                                            flabel = fname
+                                        if fname:
+                                            available_fields.append((fname, flabel))
+                                    
+                                    if available_fields:
+                                        field_help_section += f"\n\n## 可用的过滤字段（来自错误响应）\n\n"
+                                        field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n"
+                                        field_help_section += "|---|---|\n"
+                                        for fname, flabel in available_fields:
+                                            field_help_section += f"| `{fname}` | {flabel} |\n"
+                                        field_help_section += "\n**⚠️ 重要**: 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
                                         
-                                        settings = Settings()
-                                        cfg = settings.get_django_api_config()
-                                        field_client = OpenAPIAwareClient(cfg)
-                                        await field_client.load_openapi_schema()
-                                        await field_client.login()
-                                        
-                                        # 获取配置详情
-                                        config_resp = await field_client.call_api_by_path(
-                                            method="GET",
-                                            path=f"/api/core/table-query/configs/by-name/{config_name}"
-                                        )
-                                        await field_client.close()
-                                        
-                                        if isinstance(config_resp, dict):
-                                            # 从 config_json 中提取可用字段信息
-                                            config_json = config_resp.get('config_json', {})
-                                            fields_list = config_json.get('fields', []) if isinstance(config_json, dict) else []
+                                        log_realtime(f"   可用字段:")
+                                        for fname, flabel in available_fields[:8]:
+                                            log_realtime(f"      {fname} ({flabel})")
+                                        if len(available_fields) > 8:
+                                            log_realtime(f"      ... 还有 {len(available_fields) - 8} 个")
+                                else:
+                                    # 回退：从请求体中获取配置名称，调用新的 searchable-fields 端点
+                                    body = step_input.get('body', {})
+                                    config_name = ''
+                                    api_type = 'table-query'  # 默认表查询
+                                    
+                                    if isinstance(body, dict):
+                                        config_name = body.get('config_name', body.get('survey_name', ''))
+                                        if body.get('survey_name') or body.get('schema_id'):
+                                            api_type = 'survey'
+                                    
+                                    if config_name:
+                                        log_realtime(f"📋 [字段检查] 调用 searchable-fields 端点获取 '{config_name}' 的可用字段...")
+                                        try:
+                                            from .client import OpenAPIAwareClient
+                                            from ..utils.config_models import Settings
                                             
-                                            # 提取可搜索的字段（同时显示字段名和显示名）
-                                            available_fields = []
-                                            for f in fields_list:
-                                                if isinstance(f, dict) and f.get('searchable', False):
-                                                    fname = f.get('name') or f.get('field')
-                                                    flabel = f.get('displayName') or f.get('label') or f.get('title') or ''
-                                                    if fname:
-                                                        # 格式: 字段名 (中文显示名)
-                                                        available_fields.append((fname, flabel))
+                                            settings = Settings()
+                                            cfg = settings.get_django_api_config()
+                                            field_client = OpenAPIAwareClient(cfg)
+                                            await field_client.load_openapi_schema()
+                                            await field_client.login()
                                             
-                                            if available_fields:
-                                                field_help_section += f"\n\n## 配置 '{config_name}' 的可用过滤字段\n\n"
-                                                field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n"
-                                                field_help_section += "|---|---|\n"
-                                                for fname, flabel in available_fields:
-                                                    field_help_section += f"| `{fname}` | {flabel} |\n"
-                                                field_help_section += "\n**⚠️ 重要**: 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
-                                                field_help_section += f"例如：要按'老人姓名'查询，应使用 `oldername`，而不是 `老人姓名`\n"
+                                            # 根据 API 类型选择不同的端点
+                                            if api_type == 'survey':
+                                                endpoint = f"/api/core/survey/schemas/by-name/{config_name}/searchable-fields"
+                                            else:
+                                                endpoint = f"/api/core/table-query/configs/by-name/{config_name}/searchable-fields"
+                                            
+                                            fields_resp = await field_client.call_api_by_path(
+                                                method="GET",
+                                                path=endpoint
+                                            )
+                                            await field_client.close()
+                                            
+                                            if isinstance(fields_resp, dict):
+                                                searchable_fields = fields_resp.get('searchable_fields', [])
+                                                model_fields = fields_resp.get('model_fields', [])
                                                 
-                                                log_realtime(f"   可用字段:")
-                                                for fname, flabel in available_fields[:8]:
-                                                    log_realtime(f"      {fname} ({flabel})")
-                                                if len(available_fields) > 8:
-                                                    log_realtime(f"      ... 还有 {len(available_fields) - 8} 个")
-                                    except Exception as field_e:
-                                        log_realtime(f"   获取字段信息失败: {field_e}")
+                                                available_fields = []
+                                                # 添加 schema/配置中的可搜索字段
+                                                for f in searchable_fields:
+                                                    if isinstance(f, dict):
+                                                        fname = f.get('name', '')
+                                                        flabel = f.get('display_name', f.get('title', fname))
+                                                        if fname:
+                                                            available_fields.append((fname, flabel))
+                                                
+                                                # 添加模型固定字段（问卷查询）
+                                                for f in model_fields:
+                                                    if isinstance(f, dict):
+                                                        fname = f.get('name', '')
+                                                        flabel = f.get('title', fname)
+                                                        if fname:
+                                                            available_fields.append((fname, flabel))
+                                                
+                                                if available_fields:
+                                                    field_help_section += f"\n\n## 配置 '{config_name}' 的可用过滤字段\n\n"
+                                                    field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n"
+                                                    field_help_section += "|---|---|\n"
+                                                    for fname, flabel in available_fields:
+                                                        field_help_section += f"| `{fname}` | {flabel} |\n"
+                                                    field_help_section += "\n**⚠️ 重要**: 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
+                                                    
+                                                    log_realtime(f"   可用字段:")
+                                                    for fname, flabel in available_fields[:8]:
+                                                        log_realtime(f"      {fname} ({flabel})")
+                                                    if len(available_fields) > 8:
+                                                        log_realtime(f"      ... 还有 {len(available_fields) - 8} 个")
+                                        except Exception as field_e:
+                                            log_realtime(f"   获取字段信息失败: {field_e}")
                         except json.JSONDecodeError:
                             failure_analysis += f"\n   详情: {err_detail[:200]}"
                     else:

@@ -520,6 +520,117 @@ def get_schema_by_name(request, survey_name: str):
     raise HttpError(404, f"未找到名称匹配 '{survey_name}' 的问卷配置")
 
 
+@router.get(
+    "/survey/schemas/{schema_id}/searchable-fields",
+    tags=["问卷管理"],
+    summary="获取 Schema 的可搜索字段",
+)
+def get_schema_searchable_fields(request, schema_id: str):
+    """
+    获取指定问卷 Schema 的可搜索字段列表
+    
+    路径参数:
+    - schema_id: Schema 配置 ID
+    
+    返回:
+    - survey_name: 问卷名称
+    - survey_type: 问卷类型
+    - searchable_fields: 可搜索字段列表
+    - model_fields: 模型固定字段（始终可搜索）
+    
+    AI 调用建议: 在生成带过滤条件的查询脚本前，先调用此接口获取可用的过滤字段。
+    """
+    schema = get_object_or_404(SurveySchemaConfig, id=schema_id, is_deleted=False)
+    
+    # Schema 中标记为 searchable 的字段
+    schema_fields = [
+        {
+            "name": f.get('name'),
+            "title": f.get('title', f.get('label', f.get('name'))),
+            "type": f.get('type', 'string')
+        }
+        for f in schema.get_searchable_fields()
+        if f.get('name')
+    ]
+    
+    # 模型固定字段
+    model_fields = [
+        {"name": "patient_name", "title": "患者姓名", "type": "string"},
+        {"name": "survey_id", "title": "问卷ID", "type": "string"},
+        {"name": "record_time", "title": "记录时间", "type": "datetime"},
+        {"name": "id", "title": "记录ID", "type": "string"},
+    ]
+    
+    return {
+        "survey_name": schema.survey_name,
+        "survey_type": schema.survey_type,
+        "searchable_fields": schema_fields,
+        "model_fields": model_fields
+    }
+
+
+@router.get(
+    "/survey/schemas/by-name/{survey_name}/searchable-fields",
+    tags=["问卷管理"],
+    summary="按名称获取可搜索字段",
+)
+def get_schema_searchable_fields_by_name(request, survey_name: str):
+    """
+    按问卷名称获取可搜索字段列表（支持模糊匹配）
+    
+    路径参数:
+    - survey_name: 问卷名称（支持模糊匹配）
+    
+    返回:
+    - survey_name: 问卷名称
+    - survey_type: 问卷类型
+    - searchable_fields: 可搜索字段列表
+    - model_fields: 模型固定字段（始终可搜索）
+    
+    AI 调用建议: 直接传入用户提到的问卷名称，无需先获取 ID。
+    """
+    # 优先精确匹配
+    schema = SurveySchemaConfig.objects.filter(
+        survey_name=survey_name,
+        is_deleted=False
+    ).first()
+    if not schema:
+        # 模糊匹配
+        schema = SurveySchemaConfig.objects.filter(
+            survey_name__icontains=survey_name,
+            is_deleted=False
+        ).first()
+    
+    if not schema:
+        raise HttpError(404, f"未找到名称匹配 '{survey_name}' 的问卷配置")
+    
+    # Schema 中标记为 searchable 的字段
+    schema_fields = [
+        {
+            "name": f.get('name'),
+            "title": f.get('title', f.get('label', f.get('name'))),
+            "type": f.get('type', 'string')
+        }
+        for f in schema.get_searchable_fields()
+        if f.get('name')
+    ]
+    
+    # 模型固定字段
+    model_fields = [
+        {"name": "patient_name", "title": "患者姓名", "type": "string"},
+        {"name": "survey_id", "title": "问卷ID", "type": "string"},
+        {"name": "record_time", "title": "记录时间", "type": "datetime"},
+        {"name": "id", "title": "记录ID", "type": "string"},
+    ]
+    
+    return {
+        "survey_name": schema.survey_name,
+        "survey_type": schema.survey_type,
+        "searchable_fields": schema_fields,
+        "model_fields": model_fields
+    }
+
+
 # =============================================================================
 # 问卷数据 API
 # =============================================================================
@@ -622,6 +733,20 @@ def query_records(request, data: SurveyQueryIn):
         is_deleted=False,
     )
     
+    # 获取可搜索字段（模型固定字段 + Schema 中标记为 searchable 的字段）
+    # 模型固定字段始终允许搜索
+    model_searchable_fields = {
+        'patient_name', 'survey_type', 'survey_id', 'record_time',
+        'id', 'sys_create_datetime', 'sys_update_datetime'
+    }
+    # Schema 中标记为 searchable 的字段
+    schema_searchable_fields = {
+        f.get('name', '').lower() 
+        for f in schema.get_searchable_fields()
+        if f.get('name')
+    }
+    all_searchable_fields = model_searchable_fields | schema_searchable_fields
+    
     # 应用过滤条件
     if data.filters:
         for condition in data.filters:
@@ -631,6 +756,30 @@ def query_records(request, data: SurveyQueryIn):
             
             if not field or value is None:
                 continue
+            
+            # 验证字段是否可搜索
+            if field.lower() not in all_searchable_fields:
+                # 获取可用字段列表
+                available_fields = [
+                    {
+                        "name": f.get('name'),
+                        "title": f.get('title', f.get('label', f.get('name'))),
+                        "type": f.get('type', 'string')
+                    }
+                    for f in schema.get_searchable_fields()
+                    if f.get('name')
+                ]
+                # 添加模型固定字段
+                for mf in sorted(model_searchable_fields):
+                    available_fields.insert(0, {"name": mf, "title": mf, "type": "string"})
+                
+                # HttpError 需要字符串参数，将字典序列化为 JSON
+                import json
+                error_detail = json.dumps({
+                    "message": f"字段 {field} 不支持搜索",
+                    "available_fields": available_fields
+                }, ensure_ascii=False)
+                raise HttpError(400, error_detail)
             
             # 构建查询条件
             if operator == "eq":
