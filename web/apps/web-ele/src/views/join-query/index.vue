@@ -22,7 +22,9 @@ import {
     ElDropdownMenu,
     ElEmpty,
     ElInput,
+    ElLoading,
     ElMessage,
+    ElMessageBox,
 } from 'element-plus';
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
@@ -220,9 +222,26 @@ async function handleQuery() {
     try {
         loadingData.value = true;
         await gridApi.query();
-    } catch (error) {
+    } catch (error: any) {
         console.error('查询失败:', error);
-        ElMessage.error('查询失败');
+        // 检测是否是超时错误
+        const isTimeout = error?.message?.includes?.('timeout') ||
+            error?.message?.includes?.('超时') ||
+            error?.code === 'ECONNABORTED';
+
+        if (isTimeout) {
+            // 超时错误显示弹窗提示
+            await ElMessageBox.alert(
+                '查询请求超时，可能是数据量过大导致处理时间较长。建议：\n1. 添加更多过滤条件缩小查询范围\n2. 减少关联表的数量\n3. 降低查询深度',
+                '请求超时',
+                {
+                    type: 'warning',
+                    confirmButtonText: '我知道了',
+                },
+            );
+        } else {
+            ElMessage.error('查询失败');
+        }
     } finally {
         loadingData.value = false;
     }
@@ -255,6 +274,18 @@ async function handleExport(format: 'csv' | 'excel') {
         );
         return;
     }
+
+    // #region agent log
+    const exportStartTime = Date.now();
+    fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '开始导出操作', data: { format, primaryTable: primaryTable.value, exportStartTime }, timestamp: exportStartTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
+    // #endregion
+
+    // 显示加载弹窗
+    const loadingInstance = ElLoading.service({
+        lock: true,
+        text: '正在导出数据，请稍候...',
+        background: 'rgba(0, 0, 0, 0.7)',
+    });
 
     try {
         // 构建过滤条件
@@ -295,10 +326,40 @@ async function handleExport(format: 'csv' | 'excel') {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
 
+        // #region agent log
+        const exportEndTime = Date.now();
+        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '导出操作成功', data: { duration: exportEndTime - exportStartTime, format }, timestamp: exportEndTime, sessionId: 'debug-session', hypothesisId: 'B' }) }).catch(() => { });
+        // #endregion
+
         ElMessage.success('导出成功');
-    } catch (error) {
+    } catch (error: any) {
+        // #region agent log
+        const exportErrorTime = Date.now();
+        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '导出操作失败', data: { duration: exportErrorTime - exportStartTime, error: error?.toString?.() }, timestamp: exportErrorTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
+        // #endregion
         console.error('导出失败:', error);
-        ElMessage.error('导出失败');
+
+        // 检测是否是超时错误
+        const isTimeout = error?.message?.includes?.('timeout') ||
+            error?.message?.includes?.('超时') ||
+            error?.code === 'ECONNABORTED';
+
+        if (isTimeout) {
+            // 超时错误显示弹窗提示
+            await ElMessageBox.alert(
+                '导出请求超时，可能是数据量过大导致处理时间较长。建议：\n1. 添加更多过滤条件缩小导出范围\n2. 减少关联表的数量\n3. 降低查询深度\n4. 分批导出数据',
+                '导出超时',
+                {
+                    type: 'warning',
+                    confirmButtonText: '我知道了',
+                },
+            );
+        } else {
+            ElMessage.error('导出失败');
+        }
+    } finally {
+        // 关闭加载弹窗
+        loadingInstance.close();
     }
 }
 

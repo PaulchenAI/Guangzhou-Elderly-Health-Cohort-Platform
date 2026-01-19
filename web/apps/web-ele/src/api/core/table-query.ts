@@ -352,6 +352,10 @@ export async function executeJoinQueryApi(params: JoinQueryParams) {
     return requestClient.post<JoinQueryResult>(
         '/api/core/table-query/join-query',
         params,
+        {
+            // 联合查询涉及多表关联，可能需要更长的处理时间，设置为60秒
+            timeout: 60_000,
+        },
     );
 }
 
@@ -359,11 +363,30 @@ export async function executeJoinQueryApi(params: JoinQueryParams) {
  * 导出联合查询结果
  */
 export async function exportJoinDataApi(params: JoinExportParams) {
-    return requestClient.post(
-        '/api/core/table-query/join-export',
-        params,
-        {
-            responseType: 'blob',
-        },
-    );
+    // #region agent log
+    const startTime = Date.now();
+    fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'table-query.ts:exportJoinDataApi', message: '开始导出请求', data: { params, startTime, configuredTimeout: '120000ms' }, timestamp: startTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
+    // #endregion
+    try {
+        const result = await requestClient.post(
+            '/api/core/table-query/join-export',
+            params,
+            {
+                responseType: 'blob',
+                // 导出操作涉及大量数据处理，需要更长的超时时间，设置为120秒
+                timeout: 120_000,
+            },
+        );
+        // #region agent log
+        const endTime = Date.now();
+        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'table-query.ts:exportJoinDataApi', message: '导出请求成功', data: { duration: endTime - startTime, blobSize: (result as any)?.size }, timestamp: endTime, sessionId: 'debug-session', hypothesisId: 'B' }) }).catch(() => { });
+        // #endregion
+        return result;
+    } catch (error: any) {
+        // #region agent log
+        const errorTime = Date.now();
+        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'table-query.ts:exportJoinDataApi', message: '导出请求失败', data: { duration: errorTime - startTime, errorMessage: error?.message, errorCode: error?.code, isTimeout: error?.message?.includes?.('timeout') }, timestamp: errorTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
+        // #endregion
+        throw error;
+    }
 }
