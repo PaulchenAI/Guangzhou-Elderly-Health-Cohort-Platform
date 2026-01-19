@@ -1580,20 +1580,44 @@ def get_user_searchable_fields(request):
    }
    ```
 
+##### 初始化字段权限
+
+使用 management command 初始化默认的字段级权限：
+
+```bash
+# 查看将要创建的权限
+python manage.py init_field_permissions --list
+
+# 创建字段级权限（会自动分配给管理员角色）
+python manage.py init_field_permissions
+
+# 删除字段级权限
+python manage.py init_field_permissions --remove
+```
+
 ##### 添加新的字段权限
 
-要为新字段添加权限控制，只需在 `core_permission` 表中添加相应的权限记录：
+要为新字段添加权限控制，有两种方式：
+
+**方式 1：通过权限管理界面**
+
+在前端权限管理页面创建新权限，编码格式为 `{module}:query:{field_name}`。
+
+**方式 2：修改 command 配置**
+
+编辑 `core/management/commands/init_field_permissions.py` 中的 `FIELD_PERMISSIONS` 列表：
 
 ```python
-# 在 Django 迁移中添加
-Permission.objects.create(
-    name='查询用户手机号',
-    code='user:query:mobile',
-    menu=user_menu,
-    permission_type=2,  # 数据权限
-    description='允许在用户动态查询中使用手机号字段',
-    is_active=True,
-)
+FIELD_PERMISSIONS = [
+    {
+        'name': '查询用户手机号',
+        'code': 'user:query:mobile',
+        'menu_keyword': '用户',
+        'permission_type': 2,  # 数据权限
+        'description': '允许在用户动态查询中使用手机号字段',
+    },
+    # 添加新的字段权限...
+]
 ```
 
 ##### 缓存说明

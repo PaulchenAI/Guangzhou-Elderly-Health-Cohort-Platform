@@ -22,10 +22,11 @@
 
 ## 3. 权限数据初始化
 
-- [x] 3.1 创建迁移脚本添加 `user:query:mobile` 权限记录
-- [x] 3.2 创建迁移脚本添加 `user:query:email` 权限记录
-- [x] 3.3 创建迁移脚本添加 `login_log:query:login_ip` 权限记录
-- [x] 3.4 为管理员角色分配新增权限
+- [x] 3.1 创建 management command `init_field_permissions` 添加权限记录
+- [x] 3.2 支持 `user:query:mobile`, `user:query:email`, `login_log:query:login_ip`
+- [x] 3.3 支持 `--list` 参数查看权限列表
+- [x] 3.4 支持 `--remove` 参数删除权限
+- [x] 3.5 自动为管理员角色分配新增权限
 
 ## 4. 验证和文档
 
