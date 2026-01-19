@@ -38,6 +38,13 @@ from core.table_query.table_query_schema import (
     FilterCondition,
     TableQueryLogSchemaOut,
     TableQueryLogFilters,
+    JoinQueryIn,
+    JoinQueryResult,
+    JoinPreviewOut,
+    JoinExportParams,
+    JoinInfo,
+    JoinTableInfo,
+    FieldInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -855,4 +862,279 @@ def list_logs(request, filters: TableQueryLogFilters = Query(...)):
     - operation: 操作类型 (可选)
     """
     return retrieve(request, TableQueryLog, filters)
+
+
+# =============================================================================
+# 联合查询 API
+# =============================================================================
+
+@router.post("/table-query/join-query", response=JoinQueryResult, tags=["联合查询"], summary="执行外键联合查询")
+def execute_join_query(request, data: JoinQueryIn):
+    """
+    执行基于外键关系的多表联合查询
+    
+    根据主表的外键关系自动 LEFT JOIN 关联表，将数据合并成一个结果集输出。
+    
+    请求体:
+    - primary_table: 主表名或配置名（必填，支持模糊匹配）
+    - max_depth: 最大关联深度（可选，1-5级，默认2级）
+    - include_tables: 指定要包含的关联表（可选，优先级高于 exclude_tables）
+    - exclude_tables: 指定要排除的关联表（可选）
+    - page: 页码（可选，默认1）
+    - page_size: 每页数量（可选，默认20，最大100）
+    - filters: 过滤条件（可选，字段名需使用 表名_字段名 格式）
+    - order_by: 排序（可选，字段名需使用 表名_字段名 格式）
+    
+    返回:
+    - items: 数据列表
+    - total: 总数
+    - page: 当前页码
+    - page_size: 每页数量
+    - join_info: 关联信息（主表、关联表列表、关联深度等）
+    - field_info: 字段元信息列表
+    
+    AI 调用建议: 直接传入用户提到的表名，系统会自动解析外键关系并进行联合查询。
+    """
+    from core.table_query.join_query_utils import execute_join_query as do_join_query
+    
+    start_time = time.time()
+    
+    # 转换过滤条件格式
+    filters = None
+    if data.filters:
+        filters = [{"field": f.field, "operator": f.operator, "value": f.value} for f in data.filters]
+    
+    try:
+        result = do_join_query(
+            primary_table=data.primary_table,
+            max_depth=data.max_depth,
+            include_tables=data.include_tables,
+            exclude_tables=data.exclude_tables,
+            filters=filters,
+            order_by=data.order_by,
+            page=data.page,
+            page_size=data.page_size,
+        )
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    
+    # 计算执行时间
+    execution_time = (time.time() - start_time) * 1000
+    
+    # 记录查询日志
+    user_id = str(request.auth.id) if hasattr(request, 'auth') and request.auth else 'anonymous'
+    TableQueryLog.objects.create(
+        user_id=user_id,
+        table_name=result["join_info"]["primary_table"],
+        operation="join_query",
+        filters={
+            "conditions": filters or [],
+            "order_by": data.order_by,
+            "max_depth": data.max_depth,
+            "joined_tables": result["join_info"]["joined_tables"],
+        },
+        record_count=len(result["items"]),
+        execution_time=execution_time,
+    )
+    
+    logger.info(
+        f"联合查询执行: {result['join_info']['primary_table']}, "
+        f"关联 {len(result['join_info']['joined_tables'])} 表, "
+        f"返回 {len(result['items'])} 条, 耗时 {execution_time:.2f}ms"
+    )
+    
+    # 构建响应
+    return JoinQueryResult(
+        items=result["items"],
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+        join_info=JoinInfo(
+            primary_table=result["join_info"]["primary_table"],
+            joined_tables=result["join_info"]["joined_tables"],
+            join_depth=result["join_info"]["join_depth"],
+            total_tables=result["join_info"]["total_tables"],
+            has_cycle=result["join_info"]["has_cycle"],
+            join_details=[
+                JoinTableInfo(
+                    table_name=d["table_name"],
+                    join_depth=d["join_depth"],
+                    source_table=d["source_table"],
+                    source_columns=d["source_columns"],
+                    target_columns=d["target_columns"],
+                )
+                for d in result["join_info"]["join_details"]
+            ],
+        ),
+        field_info=[
+            FieldInfo(
+                alias=f["alias"],
+                original_table=f["original_table"],
+                original_field=f["original_field"],
+                field_type=f["field_type"],
+            )
+            for f in result["field_info"]
+        ],
+    )
+
+
+@router.get("/table-query/join-preview/{table_name}", response=JoinPreviewOut, tags=["联合查询"], summary="预览表的关联关系")
+def get_join_preview(request, table_name: str, max_depth: int = 2):
+    """
+    预览指定表的外键关联关系
+    
+    帮助用户了解某个表可以关联哪些表，以及关联的字段信息。
+    
+    路径参数:
+    - table_name: 表名（支持模糊匹配）
+    
+    查询参数:
+    - max_depth: 最大关联深度（可选，1-5级，默认2级）
+    
+    返回:
+    - primary_table: 主表名
+    - join_tree: 关联关系树
+    - total_related_tables: 总关联表数
+    - max_depth: 最大关联深度
+    - has_cycle: 是否存在循环引用
+    - all_fields: 所有字段列表（带前缀）
+    
+    AI 调用建议: 在执行联合查询前，先调用此接口了解表的关联关系。
+    """
+    from core.table_query.join_query_utils import get_join_preview as do_preview
+    
+    # 限制深度
+    max_depth = min(max(1, max_depth), 5)
+    
+    try:
+        result = do_preview(table_name=table_name, max_depth=max_depth)
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    
+    return JoinPreviewOut(
+        primary_table=result["primary_table"],
+        join_tree=[
+            JoinTableInfo(
+                table_name=d["table_name"],
+                join_depth=d["join_depth"],
+                source_table=d["source_table"],
+                source_columns=d["source_columns"],
+                target_columns=d["target_columns"],
+            )
+            for d in result["join_tree"]
+        ],
+        total_related_tables=result["total_related_tables"],
+        max_depth=result["max_depth"],
+        has_cycle=result["has_cycle"],
+        all_fields=[
+            FieldInfo(
+                alias=f["alias"],
+                original_table=f["original_table"],
+                original_field=f["original_field"],
+                field_type=f["field_type"],
+            )
+            for f in result["all_fields"]
+        ],
+    )
+
+
+@router.post("/table-query/join-export", tags=["联合查询"], summary="导出联合查询结果")
+def export_join_query(request, data: JoinExportParams):
+    """
+    导出联合查询结果为 Excel 或 CSV 文件
+    
+    请求体:
+    - primary_table: 主表名或配置名（必填，支持模糊匹配）
+    - max_depth: 最大关联深度（可选，1-5级，默认2级）
+    - include_tables: 指定要包含的关联表（可选）
+    - exclude_tables: 指定要排除的关联表（可选）
+    - format: 导出格式 excel/csv（可选，默认 excel）
+    - filters: 过滤条件（可选）
+    - max_rows: 最大导出行数（可选，默认10000，最大100000）
+    
+    返回:
+    - 文件下载响应
+    """
+    from core.table_query.join_query_utils import (
+        JoinRelationParser,
+        JoinSQLBuilder,
+        MAX_PAGE_SIZE,
+    )
+    
+    start_time = time.time()
+    
+    # 转换过滤条件格式
+    filters = None
+    if data.filters:
+        filters = [{"field": f.field, "operator": f.operator, "value": f.value} for f in data.filters]
+    
+    try:
+        # 解析关联关系
+        parser = JoinRelationParser(
+            max_depth=data.max_depth,
+            include_tables=data.include_tables,
+            exclude_tables=data.exclude_tables,
+        )
+        parse_result = parser.parse(data.primary_table)
+        
+        # 构建 SQL
+        builder = JoinSQLBuilder(
+            primary_table=parse_result.primary_table,
+            relations=parse_result.relations,
+        )
+        
+        # 构建查询 SQL（不分页，使用 max_rows 限制）
+        select_clause, field_meta = builder.build_select_fields()
+        from_clause = builder.build_from_clause()
+        where_clause, where_params = builder.build_where_clause(filters)
+        
+        sql_parts = [f"SELECT {select_clause}", from_clause]
+        if where_clause:
+            sql_parts.append(where_clause)
+        sql_parts.append(f"LIMIT {data.max_rows}")
+        
+        sql = "\n".join(sql_parts)
+        
+        # 执行查询
+        with connection.cursor() as cursor:
+            cursor.execute(sql, where_params)
+            columns = [col[0] for col in cursor.description]
+            rows = cursor.fetchall()
+        
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    
+    # 计算执行时间
+    execution_time = (time.time() - start_time) * 1000
+    
+    # 记录导出日志
+    user_id = str(request.auth.id) if hasattr(request, 'auth') and request.auth else 'anonymous'
+    TableQueryLog.objects.create(
+        user_id=user_id,
+        table_name=parse_result.primary_table,
+        operation="join_export",
+        filters={
+            "conditions": filters or [],
+            "format": data.format,
+            "max_depth": data.max_depth,
+            "joined_tables": parse_result.joined_tables,
+        },
+        record_count=len(rows),
+        execution_time=execution_time,
+    )
+    
+    logger.info(
+        f"联合查询导出: {parse_result.primary_table}, "
+        f"关联 {len(parse_result.relations)} 表, "
+        f"导出 {len(rows)} 条, 格式 {data.format}"
+    )
+    
+    # 生成文件名
+    filename = f"{parse_result.primary_table}_联合查询"
+    
+    # 生成导出文件
+    if data.format == "csv":
+        return _export_csv(filename, columns, rows)
+    else:
+        return _export_excel(filename, columns, rows)
 
