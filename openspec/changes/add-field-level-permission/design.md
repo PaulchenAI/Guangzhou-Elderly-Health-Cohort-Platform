@@ -9,9 +9,10 @@
 ### 约束
 
 - 必须与现有 RBAC 权限系统集成
-- 必须保持向后兼容（无权限配置的字段行为不变）
+- **字段配置结构保持不变**，不添加 `permission` 属性
+- **通过查询系统权限表判断字段访问权限**
+- `searchable-fields` 接口输出结构保持不变
 - 权限验证不应显著影响查询性能
-- 字段权限应与菜单/按钮权限使用相同的权限编码体系
 
 ### 利益相关者
 
@@ -23,7 +24,7 @@
 
 ### 目标
 
-1. 为可搜索字段添加权限配置能力
+1. 通过系统权限表控制字段访问，不修改字段配置结构
 2. `searchable-fields` 接口根据用户权限返回可用字段
 3. `query` 接口验证用户是否有权限使用查询中的字段
 4. 提供清晰的错误提示，告知缺少的权限
@@ -33,133 +34,186 @@
 1. 不实现行级数据权限（如只能查看本部门数据）
 2. 不实现字段值脱敏（如手机号部分隐藏）
 3. 不修改现有的菜单/按钮权限系统
+4. 不修改可搜索字段配置结构
 
 ## 决策
 
-### 决策 1：权限配置方式
+### 决策 1：权限控制方式
 
-**选择**：在字段配置中添加可选的 `permission` 属性。
+**选择**：通过系统权限表中的权限编码，使用约定的命名规范来控制字段访问。
 
-**实现**：
-```python
-USER_SEARCHABLE_FIELDS = [
-    {"name": "id", "display_name": "用户ID", "type": "string"},  # 无权限要求
-    {"name": "mobile", "display_name": "手机号", "type": "string", "permission": "user:view_sensitive"},
-    {"name": "email", "display_name": "邮箱", "type": "string", "permission": "user:view_sensitive"},
-]
+**权限编码命名规范**：
+```
+{module}:query:{field_name}
 ```
 
+**示例**：
+| 权限编码 | 说明 | 保护字段 |
+|---------|------|---------|
+| `user:query:mobile` | 用户模块查询手机号 | user.mobile |
+| `user:query:email` | 用户模块查询邮箱 | user.email |
+| `login_log:query:login_ip` | 登录日志查询IP | login_log.login_ip |
+
+**逻辑**：
+- 如果权限表中**存在**该字段的权限记录，且用户**没有**该权限 → 隐藏字段
+- 如果权限表中**不存在**该字段的权限记录 → 字段对所有人可见
+- 如果用户**拥有**该权限 → 字段可见
+
 **理由**：
-- 配置简单，与现有结构兼容
-- 单个权限编码，复用现有权限体系
-- `permission: None` 或缺省表示无需权限
+- 字段配置无需修改，保持简洁
+- 权限由系统管理员在权限管理界面配置
+- 新增敏感字段只需在权限表添加记录，无需改代码
 
-### 决策 2：权限验证位置
+### 决策 2：权限验证实现
 
-**选择**：在两个位置进行验证。
-
-1. **`searchable-fields` 接口**：过滤返回的字段列表
-2. **`query` 接口**：验证查询条件中的字段权限
+**选择**：在 `fu_crud.py` 中添加权限检查函数，查询权限表判断字段访问权限。
 
 **实现**：
 ```python
 # fu_crud.py
+
+def get_field_permissions(module: str) -> Dict[str, str]:
+    """
+    获取模块的字段权限映射
+    
+    从权限表查询以 '{module}:query:' 开头的权限，
+    返回 {field_name: permission_code} 映射
+    """
+    from core.permission.permission_model import Permission
+    
+    prefix = f"{module}:query:"
+    permissions = Permission.objects.filter(
+        code__startswith=prefix,
+        is_active=True
+    ).values_list('code', flat=True)
+    
+    # 提取字段名：user:query:mobile -> mobile
+    return {
+        code.split(':')[-1]: code
+        for code in permissions
+    }
+
+
 def filter_searchable_fields_by_permission(
     searchable_fields: List[Dict],
+    module: str,
     user_permissions: Set[str]
 ) -> List[Dict]:
     """根据用户权限过滤可搜索字段"""
-    return [
-        field for field in searchable_fields
-        if field.get('permission') is None or field['permission'] in user_permissions
-    ]
-
-def validate_query_field_permissions(
-    filters: List[FilterCondition],
-    searchable_fields: List[Dict],
-    user_permissions: Set[str]
-) -> None:
-    """验证查询字段权限，无权限时抛出 HttpError"""
-    ...
+    field_permissions = get_field_permissions(module)
+    
+    result = []
+    for field in searchable_fields:
+        field_name = field['name']
+        required_permission = field_permissions.get(field_name)
+        
+        # 无权限要求，或用户拥有权限
+        if required_permission is None or required_permission in user_permissions:
+            result.append(field)
+    
+    return result
 ```
 
 **理由**：
-- 双重验证确保安全性
-- `searchable-fields` 过滤后，AI Agent 不会构造无权限的查询
-- `query` 验证是最后一道防线
+- 权限配置集中在权限表，便于管理
+- 查询结果可以缓存，避免频繁查库
+- 与现有权限管理界面集成
 
-### 决策 3：权限获取方式
+### 决策 3：缓存策略
 
-**选择**：通过 `request.auth` 获取当前用户，调用 `user.get_all_permission_codes()` 获取权限集合。
+**选择**：缓存模块的字段权限映射，权限变更时清除缓存。
+
+**实现**：
+```python
+from django.core.cache import cache
+
+FIELD_PERMISSION_CACHE_KEY = "field_permission:{module}"
+FIELD_PERMISSION_CACHE_TIMEOUT = 3600  # 1小时
+
+def get_field_permissions(module: str) -> Dict[str, str]:
+    cache_key = FIELD_PERMISSION_CACHE_KEY.format(module=module)
+    result = cache.get(cache_key)
+    
+    if result is None:
+        # 查询数据库...
+        cache.set(cache_key, result, FIELD_PERMISSION_CACHE_TIMEOUT)
+    
+    return result
+```
 
 **理由**：
-- 复用现有的用户权限获取逻辑
-- 权限已被缓存，性能可控
+- 减少数据库查询
+- 权限变更不频繁，1 小时缓存可接受
 
-### 决策 4：敏感字段权限编码
+### 决策 4：输出结构不变
 
-**选择**：为每个模块定义统一的敏感字段权限编码。
+**选择**：`searchable-fields` 接口的响应结构保持不变。
 
-| 模块 | 权限编码 | 保护字段 |
-|------|---------|---------|
-| user | `user:view_sensitive` | mobile, email |
-| login_log | `login_log:view_ip` | login_ip |
+**当前输出**：
+```json
+{
+  "module": "user",
+  "display_name": "用户管理",
+  "searchable_fields": [
+    {"name": "id", "display_name": "用户ID", "type": "string"},
+    {"name": "name", "display_name": "姓名", "type": "string"}
+  ]
+}
+```
 
-**理由**：
-- 权限粒度适中，不过于细碎
-- 便于在角色管理中配置
-
-### 考虑的替代方案
-
-1. **字段级独立权限**
-   - 例如：`user:view_mobile`, `user:view_email`
-   - 优点：粒度更细
-   - 缺点：权限数量爆炸，管理复杂
-   - 结论：不采用
-
-2. **角色白名单**
-   - 例如：`{"name": "mobile", "allowed_roles": ["admin", "hr"]}`
-   - 优点：直观
-   - 缺点：与现有权限系统不一致
-   - 结论：不采用
+**变更后输出**（结构相同，仅字段列表根据权限过滤）：
+```json
+{
+  "module": "user",
+  "display_name": "用户管理",
+  "searchable_fields": [
+    {"name": "id", "display_name": "用户ID", "type": "string"},
+    {"name": "name", "display_name": "姓名", "type": "string"}
+    // mobile, email 被过滤（无权限）
+  ]
+}
+```
 
 ## 风险 / 权衡
 
 ### 风险 1：性能影响
 
-**风险**：每次查询都需要获取用户权限。
+**风险**：每次请求都需要查询权限表。
 
 **缓解措施**：
+- 字段权限映射缓存 1 小时
 - 用户权限已有缓存机制
 - 权限验证是简单的集合查找，O(1) 复杂度
 
-### 风险 2：配置遗漏
+### 风险 2：权限配置遗漏
 
-**风险**：新增字段忘记配置权限。
+**风险**：忘记在权限表中添加敏感字段的权限记录。
 
 **缓解措施**：
-- 默认无需权限，不影响功能
-- 敏感字段需在代码审查时检查权限配置
+- 默认无权限记录 = 字段对所有人可见（安全设计：显式限制）
+- 提供权限初始化脚本
+- 在部署文档中说明需要配置的权限
 
 ## 迁移计划
 
 ### 阶段 1：基础设施（0.5 天）
-1. 修改 `fu_crud.py` 添加权限过滤和验证函数
-2. 修改 Schema 支持 `permission` 属性
+1. 在 `fu_crud.py` 中添加 `get_field_permissions` 函数
+2. 添加 `filter_searchable_fields_by_permission` 函数
+3. 添加 `validate_query_field_permissions` 函数
+4. 添加缓存逻辑
 
-### 阶段 2：核心模块适配（0.5 天）
-1. 为 `user` 模块的敏感字段添加权限
-2. 为 `login_log` 模块的 IP 字段添加权限
-3. 修改各模块 API 传入用户权限
+### 阶段 2：模块适配（0.5 天）
+1. 修改各模块的 `searchable-fields` 接口，传入模块名和用户权限
+2. 修改各模块的 `query` 接口，验证字段权限
 
 ### 阶段 3：权限初始化（0.5 天）
-1. 在权限表中添加新的权限记录
-2. 为管理员角色分配敏感字段权限
+1. 创建迁移脚本，在权限表中添加敏感字段的权限记录
+2. 为管理员角色分配新权限
 
 ### 回滚计划
 
-- 移除字段的 `permission` 属性即可回滚
-- 权限过滤函数检测到无 `permission` 属性时跳过验证
+- 删除权限表中的字段权限记录即可回滚
+- 函数检测到无权限记录时，所有字段可见
 
 ## 待决问题
 
@@ -167,5 +221,6 @@ def validate_query_field_permissions(
    - 记录用户尝试访问无权限字段的行为
    - 建议：作为后续增强
 
-2. **是否需要在 OpenAPI 文档中体现字段权限？**
-   - 建议：不在 OpenAPI 中体现，通过 `searchable-fields` 接口动态获取
+2. **权限管理界面是否需要调整？**
+   - 当前权限管理可直接添加字段权限
+   - 建议：无需调整，使用现有功能
