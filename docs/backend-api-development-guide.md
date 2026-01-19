@@ -1377,6 +1377,175 @@ class UserFilters(FuFilters):
     dept_id: Optional[list] = Field(None, q="dept_id__in", alias="dept_ids[]")
 ```
 
+### 9.4 动态查询接口
+
+动态查询接口允许客户端（特别是 AI Agent）灵活地构造查询条件，支持多种操作符。
+
+#### 9.4.1 支持的操作符
+
+| 操作符 | 说明 | 示例值 | SQL 映射 |
+|--------|------|--------|----------|
+| `eq` | 等于 | `"张三"` | `= '张三'` |
+| `ne` | 不等于 | `"张三"` | `!= '张三'` |
+| `gt` | 大于 | `18` | `> 18` |
+| `gte` | 大于等于 | `18` | `>= 18` |
+| `lt` | 小于 | `65` | `< 65` |
+| `lte` | 小于等于 | `65` | `<= 65` |
+| `like` | 模糊匹配 | `"张"` | `LIKE '%张%'` |
+| `in` | 包含 | `[1, 2, 3]` | `IN (1, 2, 3)` |
+| `between` | 范围 | `["2024-01-01", "2024-12-31"]` | `BETWEEN` |
+
+#### 9.4.2 通用 Schema 定义
+
+```python
+# common/fu_schema.py
+
+# 允许的操作符
+ALLOWED_OPERATORS = {
+    "eq": "等于",
+    "ne": "不等于",
+    "gt": "大于",
+    "gte": "大于等于",
+    "lt": "小于",
+    "lte": "小于等于",
+    "like": "模糊匹配",
+    "in": "包含",
+    "between": "范围",
+}
+
+
+class FilterCondition(Schema):
+    """通用过滤条件"""
+    field: str = Field(..., description="字段名")
+    operator: str = Field("eq", description="操作符")
+    value: Any = Field(..., description="过滤值")
+
+
+class DynamicQueryIn(Schema):
+    """通用动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+```
+
+#### 9.4.3 可搜索字段定义
+
+每个模块需要定义可搜索字段列表：
+
+```python
+# user_schema.py
+
+USER_SEARCHABLE_FIELDS = [
+    {"name": "id", "display_name": "用户ID", "type": "string"},
+    {"name": "name", "display_name": "姓名", "type": "string"},
+    {"name": "username", "display_name": "用户名", "type": "string"},
+    {"name": "email", "display_name": "邮箱", "type": "string"},
+    {"name": "user_status", "display_name": "用户状态", "type": "integer"},
+    {"name": "sys_create_datetime", "display_name": "创建时间", "type": "datetime"},
+]
+
+
+class UserQueryIn(Schema):
+    """用户动态查询请求"""
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页数量")
+    filters: Optional[List[FilterCondition]] = Field(None, description="过滤条件")
+    order_by: Optional[str] = Field(None, description="排序字段")
+```
+
+#### 9.4.4 动态查询 API 实现
+
+```python
+# user_api.py
+from common.fu_crud import dynamic_query, get_searchable_fields_response
+from common.fu_schema import DynamicQueryResult, SearchableFieldsResult
+
+
+@router.post("/user/query", response=DynamicQueryResult, summary="动态查询用户")
+def query_user(request, data: UserQueryIn):
+    """
+    动态查询用户数据
+    
+    支持灵活的过滤条件和操作符选择。
+    """
+    base_queryset = User.objects.filter(is_deleted=False).select_related('dept')
+    
+    items, total = dynamic_query(
+        model=User,
+        filters=data.filters,
+        searchable_fields=USER_SEARCHABLE_FIELDS,
+        page=data.page,
+        page_size=data.page_size,
+        order_by=data.order_by or "-sys_create_datetime",
+        base_queryset=base_queryset
+    )
+    
+    result_items = [UserSchemaOut.from_orm(item) for item in items]
+    
+    return DynamicQueryResult(
+        items=result_items,
+        total=total,
+        page=data.page,
+        page_size=data.page_size
+    )
+
+
+@router.get("/user/searchable-fields", response=SearchableFieldsResult, summary="获取可搜索字段")
+def get_user_searchable_fields(request):
+    """获取用户模块的可搜索字段列表"""
+    return get_searchable_fields_response(
+        module="user",
+        display_name="用户管理",
+        searchable_fields=USER_SEARCHABLE_FIELDS
+    )
+```
+
+#### 9.4.5 请求示例
+
+```json
+// POST /api/core/user/query
+{
+  "page": 1,
+  "page_size": 10,
+  "filters": [
+    {"field": "name", "operator": "like", "value": "张"},
+    {"field": "user_status", "operator": "eq", "value": 1},
+    {"field": "sys_create_datetime", "operator": "gte", "value": "2024-01-01"}
+  ],
+  "order_by": "-sys_create_datetime"
+}
+```
+
+#### 9.4.6 响应格式
+
+```json
+{
+  "items": [
+    {"id": "xxx", "name": "张三", ...}
+  ],
+  "total": 100,
+  "page": 1,
+  "page_size": 10
+}
+```
+
+#### 9.4.7 错误处理
+
+当使用不支持的操作符时，会返回清晰的错误提示：
+
+```json
+{
+  "detail": "不支持的操作符: ==。支持的操作符: eq(等于), ne(不等于), gt(大于), gte(大于等于), lt(小于), lte(小于等于), like(模糊匹配), in(包含), between(范围)"
+}
+```
+
+#### 9.4.8 AI Agent 调用建议
+
+1. **先获取可搜索字段**：调用 `GET /{module}/searchable-fields` 获取可用的过滤字段
+2. **构造查询条件**：根据返回的字段信息构造 `filters` 数组
+3. **使用正确的操作符**：字符串字段用 `like`，数值字段用 `eq/gt/lt`，日期字段用 `between`
+
 ---
 
 ## 10. 错误处理

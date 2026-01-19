@@ -69,6 +69,6 @@
 ## 12. 验证和文档
 
 - [x] 12.1 Django 项目检查通过 (`python manage.py check`)
-- [ ] 12.2 更新 `docs/backend-api-development-guide.md` 添加动态查询接口开发指南
+- [x] 12.2 更新 `docs/backend-api-development-guide.md` 添加动态查询接口开发指南
 - [x] 12.3 更新 API 文档（OpenAPI/Swagger）- 由 Django Ninja 自动生成
-- [ ] 12.4 端到端测试验证所有新增接口
+- [x] 12.4 端到端测试验证所有新增接口
