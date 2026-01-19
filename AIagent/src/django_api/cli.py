@@ -843,17 +843,15 @@ async def cmd_generate(args):
     # JSON 分隔符常量
     JSON_OUTPUT_SEPARATOR = "===JSON_OUTPUT_START==="
     
-    # 定义输出函数：JSON 模式下输出到 stderr，文本模式下输出到 stdout
+    # 定义输出函数：始终输出到 stderr 以保持与 log_realtime 的顺序一致
     def info_print(*msg_args, **kwargs):
-        """输出流程信息：JSON 模式输出到 stderr，文本模式输出到 stdout"""
-        if output_format == OutputFormat.JSON:
-            print(*msg_args, file=sys.stderr, **kwargs)
-        else:
-            print(*msg_args, **kwargs)
+        """输出流程信息：始终输出到 stderr 以保证输出顺序"""
+        # 始终使用 stderr 并 flush，确保与 log_realtime 输出顺序一致
+        print(*msg_args, file=sys.stderr, flush=True, **kwargs)
     
-    # 显示流程信息（两种模式都显示）
-    info_print("=" * 60)
-    info_print(f"生成多步骤脚本: '{intent}'")
+    # 显示流程信息
+    info_print("\n" + "=" * 60)
+    info_print(f"📋 生成多步骤脚本: '{intent}'")
     info_print(f"🔧 模式: LangGraph 工作流")
     # 处理 --no-auto-fix 标志
     auto_fix_enabled = args.auto_fix and not getattr(args, 'no_auto_fix', False)

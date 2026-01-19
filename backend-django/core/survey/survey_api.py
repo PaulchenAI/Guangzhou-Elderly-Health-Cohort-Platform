@@ -46,6 +46,21 @@ router = Router()
 
 
 # =============================================================================
+# 安全验证相关常量
+# =============================================================================
+
+# 允许的 SQL 操作符
+ALLOWED_OPERATORS = {
+    "eq": "等于",
+    "ne": "不等于",
+    "gt": "大于",
+    "gte": "大于等于",
+    "lt": "小于",
+    "lte": "小于等于",
+    "like": "模糊匹配",
+}
+
+# =============================================================================
 # 辅助函数
 # =============================================================================
 
@@ -781,9 +796,16 @@ def query_records(request, data: SurveyQueryIn):
                 }, ensure_ascii=False)
                 raise HttpError(400, error_detail)
             
+            # 验证操作符
+            if operator not in ALLOWED_OPERATORS:
+                supported_ops = ", ".join([f"{k}({v})" for k, v in ALLOWED_OPERATORS.items()])
+                raise HttpError(400, f"不支持的操作符: {operator}。支持的操作符: {supported_ops}")
+            
             # 构建查询条件
             if operator == "eq":
                 queryset = queryset.filter(**{field: value})
+            elif operator == "ne":
+                queryset = queryset.exclude(**{field: value})
             elif operator == "like":
                 queryset = queryset.filter(**{f"{field}__icontains": value})
             elif operator == "gt":
@@ -1020,10 +1042,25 @@ def export_records(request, data: SurveyExportIn):
             if not field or value is None:
                 continue
             
+            # 验证操作符
+            if operator not in ALLOWED_OPERATORS:
+                supported_ops = ", ".join([f"{k}({v})" for k, v in ALLOWED_OPERATORS.items()])
+                raise HttpError(400, f"不支持的操作符: {operator}。支持的操作符: {supported_ops}")
+            
             if operator == "eq":
                 queryset = queryset.filter(**{field: value})
+            elif operator == "ne":
+                queryset = queryset.exclude(**{field: value})
             elif operator == "like":
                 queryset = queryset.filter(**{f"{field}__icontains": value})
+            elif operator == "gt":
+                queryset = queryset.filter(**{f"{field}__gt": value})
+            elif operator == "gte":
+                queryset = queryset.filter(**{f"{field}__gte": value})
+            elif operator == "lt":
+                queryset = queryset.filter(**{f"{field}__lt": value})
+            elif operator == "lte":
+                queryset = queryset.filter(**{f"{field}__lte": value})
     
     # 限制行数
     records = queryset[:data.max_rows]

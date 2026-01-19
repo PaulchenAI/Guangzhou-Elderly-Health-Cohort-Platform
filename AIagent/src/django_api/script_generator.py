@@ -527,7 +527,10 @@ async def plan_intent(state: ScriptGeneratorState) -> ScriptGeneratorState:
 
 ### 通用表查询
 - **POST /api/core/table-query/query** - 执行动态表查询
-  - Body: {{"config_name": "配置名称", "page": 1, "page_size": 10}}
+  - Body: {{"config_name": "配置名称", "page": 1, "page_size": 10, "filters": [...]}}
+  - filters 格式: [{{"field": "字段名", "operator": "操作符", "value": "值"}}]
+  - **⚠️ 操作符必须使用**: `eq`(等于), `ne`(不等于), `gt`(大于), `gte`(大于等于), `lt`(小于), `lte`(小于等于), `like`(模糊匹配), `in`(包含), `between`(范围)
+  - **❌ 不要使用**: `=`, `==`, `!=`, `>`, `<` 等符号
   - 返回: {{"items": [...], "total": 100}}
 
 - **GET /api/core/table-query/configs/all** - 获取所有表查询配置
@@ -690,6 +693,12 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
             path = api.get('path', '')
             params = step.get('params', {})
             
+            # #region agent log
+            import json as _dbg_json
+            with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+                _dbg_f.write(_dbg_json.dumps({"hypothesisId": "A,B,E", "location": "script_generator.py:validate_steps:loop", "message": "步骤详情", "data": {"step_num": step_num, "method": method, "path": path, "params": params, "api": api, "full_step": step}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
+            
             # 跳过登录步骤（已经在上面登录了）
             if 'login' in path.lower():
                 validation_results.append({
@@ -699,6 +708,25 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                     'message': '登录步骤已执行'
                 })
                 context_parts.append(f"### 步骤 {step_num}: {path}\n状态: 已跳过（登录已完成）")
+                continue
+            
+            # #region agent log - 假设B,E: 检查无效HTTP方法
+            valid_methods = {'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'}
+            with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+                _dbg_f.write(_dbg_json.dumps({"hypothesisId": "B,E", "location": "script_generator.py:validate_steps:method_check", "message": "HTTP方法检查", "data": {"method": method, "is_valid": method in valid_methods}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
+            
+            # 跳过无效的 HTTP 方法（如 NONE）
+            if method not in valid_methods:
+                validation_results.append({
+                    'step': step_num,
+                    'path': path,
+                    'status': 'skipped',
+                    'message': f'无效的 HTTP 方法: {method}'
+                })
+                context_parts.append(f"### 步骤 {step_num}: {method} {path}\n状态: ⚠️ 跳过（无效的HTTP方法: {method}，这不是一个API调用步骤）")
+                log_realtime(f"⚠️ 步骤 {step_num} 跳过: 无效的HTTP方法 {method}")
+                state['messages'].append(f"[验证步骤] 步骤 {step_num} ⚠️ 跳过: 无效的HTTP方法 {method}")
                 continue
             
             # 构建请求参数
@@ -716,10 +744,17 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
             try:
                 state['messages'].append(f"[验证步骤] 执行步骤 {step_num}: {method} {path}")
                 
+                # #region agent log
+                _path_params = params.get('path_params', {})
+                with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+                    _dbg_f.write(_dbg_json.dumps({"hypothesisId": "A", "location": "script_generator.py:validate_steps:before_call", "message": "调用API前参数", "data": {"method": method, "path": path, "path_params": _path_params, "query_params": query_params, "body": body, "has_path_params_key": 'path_params' in params}, "timestamp": __import__('time').time()}) + '\n')
+                # #endregion
+                
                 # 调用 API
                 response = await client.call_api_by_path(
                     method=method,
                     path=path,
+                    path_params=_path_params if _path_params else None,
                     query_params=query_params if query_params else None,
                     body=body if body else None
                 )
@@ -789,6 +824,10 @@ async def validate_steps(state: ScriptGeneratorState) -> ScriptGeneratorState:
                 
             except Exception as e:
                 error_msg = str(e)
+                # #region agent log - 假设C: 捕获操作符错误
+                with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+                    _dbg_f.write(_dbg_json.dumps({"hypothesisId": "C", "location": "script_generator.py:validate_steps:exception", "message": "API调用异常", "data": {"step_num": step_num, "method": method, "path": path, "error_msg": error_msg, "body": body, "error_type": type(e).__name__}, "timestamp": __import__('time').time()}) + '\n')
+                # #endregion
                 # 提取更详细的错误信息
                 error_detail = ""
                 if hasattr(e, 'response'):
@@ -985,7 +1024,60 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
     field_help_section = ""
     
     if has_empty_results:
-        failure_analysis += "\n**⚠️ 检测到空结果问题**: 查询返回0条数据，可能是配置名称不匹配。请核对上面的可用配置名称列表。"
+        failure_analysis += "\n**⚠️ 检测到空结果问题**: 查询返回0条数据，可能是数据库中没有匹配的记录，或者过滤条件有误。"
+        
+        # 当返回 0 条数据时，也获取配置的可用字段信息（避免 LLM 乱改配置名）
+        for r in validation_results:
+            if r.get('status') == 'empty_result':
+                step_input = r.get('input', {})
+                body = step_input.get('body', {})
+                config_name = ''
+                api_type = 'table-query'
+                
+                if isinstance(body, dict):
+                    config_name = body.get('config_name', body.get('survey_name', ''))
+                    if body.get('survey_name') or body.get('schema_id'):
+                        api_type = 'survey'
+                
+                if config_name:
+                    log_realtime(f"📋 [字段检查] 获取 '{config_name}' 的可用字段（用于保留配置信息）...")
+                    try:
+                        from .client import OpenAPIAwareClient
+                        from ..utils.config_models import Settings
+                        
+                        settings = Settings()
+                        cfg = settings.get_django_api_config()
+                        field_client = OpenAPIAwareClient(cfg)
+                        await field_client.load_openapi_schema()
+                        await field_client.login()
+                        
+                        if api_type == 'survey':
+                            endpoint = f"/api/core/survey/schemas/by-name/{config_name}/searchable-fields"
+                        else:
+                            endpoint = f"/api/core/table-query/configs/by-name/{config_name}/searchable-fields"
+                        
+                        fields_resp = await field_client.call_api_by_path(method="GET", path=endpoint)
+                        await field_client.close()
+                        
+                        if isinstance(fields_resp, dict):
+                            searchable_fields = fields_resp.get('searchable_fields', [])
+                            available_fields = [(f.get('name', ''), f.get('display_name', f.get('title', f.get('name', '')))) 
+                                               for f in searchable_fields if isinstance(f, dict) and f.get('name')]
+                            
+                            if available_fields:
+                                field_help_section += f"\n\n## ✅ 配置 '{config_name}' 是正确的！请保持使用。\n\n"
+                                field_help_section += f"**🔴 关键**: `config_name` 必须保持为 `\"{config_name}\"`，不要更改为其他配置名！\n"
+                                field_help_section += f"**注意**: 查询返回 0 条数据可能是因为数据库中没有匹配的记录，这是正常的。\n\n"
+                                field_help_section += "### 该配置的可用过滤字段：\n\n"
+                                field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n|---|---|\n"
+                                for fname, flabel in available_fields:
+                                    field_help_section += f"| `{fname}` | {flabel} |\n"
+                                field_help_section += "\n**⚠️ 重要**:\n"
+                                field_help_section += "1. **操作符必须使用**: `eq`(等于), `ne`(不等于), `like`(模糊)，**不要用** `=`, `==`\n"
+                                field_help_section += "2. 如果查询正确但返回 0 条，说明数据库中没有该记录，不需要再修改配置。\n"
+                    except Exception as e:
+                        log_realtime(f"   获取字段信息失败: {e}")
+                break  # 只处理第一个空结果步骤
     
     if has_failed_steps:
         for r in validation_results:
@@ -1003,14 +1095,29 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
                             err_json = json.loads(err_detail)
                             detail_obj = err_json.get('detail', {})
                             
-                            # 支持新的错误响应格式：detail 可能是字符串或对象
+                            # 支持新的错误响应格式：detail 可能是字符串、嵌套JSON字符串或对象
+                            available_fields_from_error = []
+                            
                             if isinstance(detail_obj, dict):
+                                # detail 直接是对象
                                 detail_msg = detail_obj.get('message', str(detail_obj))
-                                # 新格式：错误响应中直接包含 available_fields
                                 available_fields_from_error = detail_obj.get('available_fields', [])
+                            elif isinstance(detail_obj, str):
+                                # detail 可能是嵌套的 JSON 字符串，尝试再次解析
+                                if detail_obj.startswith('{') and detail_obj.endswith('}'):
+                                    try:
+                                        nested_obj = json.loads(detail_obj)
+                                        if isinstance(nested_obj, dict):
+                                            detail_msg = nested_obj.get('message', detail_obj)
+                                            available_fields_from_error = nested_obj.get('available_fields', [])
+                                        else:
+                                            detail_msg = detail_obj
+                                    except json.JSONDecodeError:
+                                        detail_msg = detail_obj
+                                else:
+                                    detail_msg = detail_obj
                             else:
                                 detail_msg = str(detail_obj)
-                                available_fields_from_error = []
                             
                             failure_analysis += f"\n   错误详情: {detail_msg}"
                             
@@ -1033,12 +1140,18 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
                                             available_fields.append((fname, flabel))
                                     
                                     if available_fields:
-                                        field_help_section += f"\n\n## 可用的过滤字段（来自错误响应）\n\n"
+                                        # 获取当前使用的配置名
+                                        current_config = step_input.get('body', {}).get('config_name', step_input.get('body', {}).get('survey_name', '未知配置'))
+                                        field_help_section += f"\n\n## ✅ 配置 '{current_config}' 已验证存在！\n\n"
+                                        field_help_section += f"**🔴 关键**: `config_name` 必须保持为 `\"{current_config}\"`，不要更改为其他配置名！\n\n"
+                                        field_help_section += "### 该配置的可用过滤字段：\n\n"
                                         field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n"
                                         field_help_section += "|---|---|\n"
                                         for fname, flabel in available_fields:
                                             field_help_section += f"| `{fname}` | {flabel} |\n"
-                                        field_help_section += "\n**⚠️ 重要**: 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
+                                        field_help_section += "\n**⚠️ 重要**:\n"
+                                        field_help_section += "1. 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
+                                        field_help_section += "2. **操作符必须使用**: `eq`(等于), `ne`(不等于), `like`(模糊)，**不要用** `=`, `==`, `!=`\n"
                                         
                                         log_realtime(f"   可用字段:")
                                         for fname, flabel in available_fields[:8]:
@@ -1102,12 +1215,16 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
                                                             available_fields.append((fname, flabel))
                                                 
                                                 if available_fields:
-                                                    field_help_section += f"\n\n## 配置 '{config_name}' 的可用过滤字段\n\n"
+                                                    field_help_section += f"\n\n## ✅ 配置 '{config_name}' 已验证存在！\n\n"
+                                                    field_help_section += f"**🔴 关键**: `config_name` 必须保持为 `\"{config_name}\"`，不要更改为其他配置名！\n\n"
+                                                    field_help_section += "### 该配置的可用过滤字段：\n\n"
                                                     field_help_section += "| 字段名（使用这个） | 中文名（仅供参考） |\n"
                                                     field_help_section += "|---|---|\n"
                                                     for fname, flabel in available_fields:
                                                         field_help_section += f"| `{fname}` | {flabel} |\n"
-                                                    field_help_section += "\n**⚠️ 重要**: 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
+                                                    field_help_section += "\n**⚠️ 重要**:\n"
+                                                    field_help_section += "1. 过滤条件必须使用 **字段名**（左列），不能使用中文名！\n"
+                                                    field_help_section += "2. **操作符必须使用**: `eq`(等于), `ne`(不等于), `like`(模糊)，**不要用** `=`, `==`, `!=`\n"
                                                     
                                                     log_realtime(f"   可用字段:")
                                                     for fname, flabel in available_fields[:8]:
@@ -1125,6 +1242,12 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
                     failure_analysis += f"\n**❌ 404 错误**: 步骤 {r.get('step')} API 路径不存在: {r.get('path')}"
                 elif '422' in err:
                     failure_analysis += f"\n**❌ 422 错误**: 步骤 {r.get('step')} 参数格式错误。详情: {err_detail[:200] if err_detail else err}"
+    
+    # #region agent log - 记录修正提示词内容
+    with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+        import json as _dbg_json
+        _dbg_f.write(_dbg_json.dumps({"hypothesisId": "D", "location": "script_generator.py:fix_execution_plan:prompt_parts", "message": "修正提示词各部分", "data": {"failure_analysis_len": len(failure_analysis), "config_help_section_len": len(config_help_section), "field_help_section_len": len(field_help_section), "field_help_section_preview": field_help_section[:500] if field_help_section else "EMPTY", "config_help_section_preview": config_help_section[:500] if config_help_section else "EMPTY"}, "timestamp": __import__('time').time()}) + '\n')
+    # #endregion
     
     prompt = f"""你是一个 API 调用规划专家。之前的执行计划在验证时失败了，请根据错误信息修正计划。
 
@@ -1176,6 +1299,11 @@ async def fix_execution_plan(state: ScriptGeneratorState) -> ScriptGeneratorStat
     
     try:
         response = await call_llm(prompt)
+        
+        # #region agent log - 记录 LLM 修正响应
+        with open('/mnt/f/work/zq-platform/.cursor/debug.log', 'a') as _dbg_f:
+            _dbg_f.write(_dbg_json.dumps({"hypothesisId": "D", "location": "script_generator.py:fix_execution_plan:llm_response", "message": "LLM修正响应", "data": {"response_len": len(response), "response_preview": response[:1000]}, "timestamp": __import__('time').time()}) + '\n')
+        # #endregion
         
         # 提取 JSON
         import re
@@ -1741,7 +1869,11 @@ def should_revalidate_steps(state: ScriptGeneratorState) -> str:
         return "fix_plan"
     
     # 超过修正次数限制，直接返回失败（不再强制继续生成）
-    log_realtime("❌ [路由] 超过修正次数限制，验证阶段失败", "")
+    log_realtime("", "")
+    log_realtime("=" * 50, "")
+    log_realtime("❌ 验证阶段失败 - 终止执行", "")
+    log_realtime("=" * 50, "")
+    log_realtime(f"已尝试修正 {plan_fix_count} 次，仍无法通过验证", "")
     
     # 收集失败原因
     failure_reasons = []
@@ -1749,18 +1881,48 @@ def should_revalidate_steps(state: ScriptGeneratorState) -> str:
         if r.get('status') == 'failed':
             err = r.get('error', '未知错误')
             err_detail = r.get('error_detail', '')
-            failure_reasons.append(f"步骤 {r.get('step')}: {err}")
+            step_info = f"步骤 {r.get('step')}: {r.get('path', '')}"
+            failure_reasons.append(step_info)
+            # 简化错误信息
+            if '400' in err:
+                failure_reasons.append(f"  ❌ 400 错误: 参数不合法")
+            elif '404' in err:
+                failure_reasons.append(f"  ❌ 404 错误: 路径不存在")
+            elif '422' in err:
+                failure_reasons.append(f"  ❌ 422 错误: 参数格式错误")
+            else:
+                failure_reasons.append(f"  ❌ {err[:80]}")
             if err_detail:
                 # 解析错误详情
                 try:
                     err_json = json.loads(err_detail)
-                    detail_msg = err_json.get('detail', '')
+                    detail_obj = err_json.get('detail', '')
+                    # 处理嵌套 JSON
+                    if isinstance(detail_obj, str) and detail_obj.startswith('{'):
+                        try:
+                            nested = json.loads(detail_obj)
+                            detail_msg = nested.get('message', detail_obj)
+                        except:
+                            detail_msg = detail_obj
+                    elif isinstance(detail_obj, dict):
+                        detail_msg = detail_obj.get('message', str(detail_obj))
+                    else:
+                        detail_msg = str(detail_obj)
                     if detail_msg:
                         failure_reasons.append(f"  详情: {detail_msg}")
                 except:
                     failure_reasons.append(f"  详情: {err_detail[:100]}")
         elif r.get('status') == 'empty_result':
-            failure_reasons.append(f"步骤 {r.get('step')}: 查询返回 0 条数据")
+            failure_reasons.append(f"步骤 {r.get('step')}: 查询返回 0 条数据（配置名可能不匹配）")
+    
+    # 输出失败原因
+    log_realtime("", "")
+    log_realtime("失败原因:", "")
+    for reason in failure_reasons:
+        log_realtime(reason, "  ")
+    log_realtime("", "")
+    log_realtime("⛔ 工作流终止，不会生成脚本", "")
+    log_realtime("=" * 50, "")
     
     # 更新状态，标记为失败
     state['execution_success'] = False

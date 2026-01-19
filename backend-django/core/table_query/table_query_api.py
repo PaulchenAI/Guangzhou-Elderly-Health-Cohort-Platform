@@ -292,7 +292,8 @@ def build_where_clause(
         
         # 验证操作符
         if operator not in ALLOWED_OPERATORS:
-            raise HttpError(400, f"不支持的操作符: {operator}")
+            supported_ops = ", ".join([f"{k}({v})" for k, v in ALLOWED_OPERATORS.items()])
+            raise HttpError(400, f"不支持的操作符: {operator}。支持的操作符: {supported_ops}")
         
         sql_operator = ALLOWED_OPERATORS[operator]
         
