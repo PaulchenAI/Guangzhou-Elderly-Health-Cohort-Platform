@@ -55,6 +55,25 @@ class LoginLogFilters(FuFilters):
     os_type: Optional[str] = Field(None, q="os_type", alias="os_type")
     start_datetime: Optional[datetime] = Field(None, q="sys_create_datetime__gte", alias="start_datetime")
     end_datetime: Optional[datetime] = Field(None, q="sys_create_datetime__lte", alias="end_datetime")
+    
+    @field_validator('start_datetime', 'end_datetime', mode='before')
+    @classmethod
+    def remove_timezone(cls, v):
+        """移除时区信息，解决 MySQL USE_TZ=False 时的兼容问题"""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            # 处理 ISO 格式的时区后缀（如 "2026-01-19T00:00:00Z"）
+            if v.endswith('Z'):
+                v = v[:-1]  # 移除 Z
+            elif '+' in v[-6:] or (v[-6:].count('-') > 0 and ':' in v[-6:]):
+                # 移除时区偏移（如 "+08:00" 或 "-05:00"）
+                v = v.rsplit('+', 1)[0].rsplit('-', 1)[0] if '+' in v[-6:] else v[:-6]
+            return datetime.fromisoformat(v)
+        if isinstance(v, datetime) and v.tzinfo is not None:
+            # 移除 datetime 对象的时区信息
+            return v.replace(tzinfo=None)
+        return v
 
 
 class LoginLogSchemaIn(ModelSchema):
