@@ -47,6 +47,38 @@ ALLOWED_OPERATORS = {
     "between": "BETWEEN",
 }
 
+# 表存在性缓存（避免重复查询）
+_table_exists_cache: Dict[str, bool] = {}
+
+
+def check_table_exists(table_name: str) -> bool:
+    """
+    检查表是否存在于数据库中
+    
+    Args:
+        table_name: 表名
+        
+    Returns:
+        bool: 表是否存在
+    """
+    global _table_exists_cache
+    
+    if table_name in _table_exists_cache:
+        return _table_exists_cache[table_name]
+    
+    try:
+        with connection.cursor() as cursor:
+            # 使用 SHOW TABLES LIKE 检查表是否存在
+            cursor.execute("SHOW TABLES LIKE %s", [table_name])
+            exists = cursor.fetchone() is not None
+            _table_exists_cache[table_name] = exists
+            if not exists:
+                logger.warning(f"表不存在: {table_name}")
+            return exists
+    except Exception as e:
+        logger.error(f"检查表 {table_name} 存在性时出错: {e}")
+        return False
+
 
 # =============================================================================
 # 数据结构
@@ -78,6 +110,7 @@ class FieldMeta:
     original_table: str
     original_field: str
     field_type: str = "string"
+    field_comment: str = ""  # 字段注释（中文名称）
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -85,6 +118,7 @@ class FieldMeta:
             "original_table": self.original_table,
             "original_field": self.original_field,
             "field_type": self.field_type,
+            "field_comment": self.field_comment,
         }
 
 
@@ -243,6 +277,11 @@ class JoinRelationParser:
             if not self._should_include_table(target_table):
                 continue
             
+            # 检查表是否存在
+            if not check_table_exists(target_table):
+                logger.warning(f"跳过不存在的关联表: {target_table}")
+                continue
+            
             # 循环检测
             if target_table in self._visited:
                 self._has_cycle = True
@@ -346,14 +385,19 @@ class JoinSQLBuilder:
         self._alias_to_original = {}
         select_parts = []
         
-        # 获取所有表（主表 + 关联表）
-        all_tables = [self.primary_table] + [r.table_name for r in self.relations]
+        # 获取所有表（主表 + 关联表），过滤掉不存在的表
+        all_tables = [self.primary_table]
+        for r in self.relations:
+            if check_table_exists(r.table_name):
+                all_tables.append(r.table_name)
+            else:
+                logger.warning(f"跳过不存在的关联表: {r.table_name}")
         
         for table_name in all_tables:
             # 获取表的字段列表
             fields = self._get_table_fields(table_name)
             
-            for field_name, field_type in fields:
+            for field_name, field_type, field_comment in fields:
                 # 构建别名：表名_字段名
                 alias = f"{table_name}_{field_name}"
                 
@@ -368,6 +412,7 @@ class JoinSQLBuilder:
                     original_table=table_name,
                     original_field=field_name,
                     field_type=field_type,
+                    field_comment=field_comment,
                 ))
                 self._all_fields.append(alias)
                 # 记录别名到原始表名/字段名的映射
@@ -385,6 +430,11 @@ class JoinSQLBuilder:
         parts = [f"FROM {self._quote(self.primary_table)}"]
         
         for relation in self.relations:
+            # 检查关联表是否存在
+            if not check_table_exists(relation.table_name):
+                logger.warning(f"跳过不存在的关联表: {relation.table_name}")
+                continue
+                
             # 构建 JOIN 条件
             join_conditions = []
             for src_col, tgt_col in zip(relation.source_columns, relation.target_columns):
@@ -592,7 +642,7 @@ class JoinSQLBuilder:
         
         return sql, params, field_meta
     
-    def _get_table_fields(self, table_name: str) -> List[Tuple[str, str]]:
+    def _get_table_fields(self, table_name: str) -> List[Tuple[str, str, str]]:
         """
         获取表的字段列表
         
@@ -600,13 +650,13 @@ class JoinSQLBuilder:
             table_name: 表名
         
         Returns:
-            [(字段名, 字段类型), ...]
+            [(字段名, 字段类型, 字段注释), ...]
         """
         try:
             with connection.cursor() as cursor:
-                # 使用 INFORMATION_SCHEMA 获取字段信息
+                # 使用 INFORMATION_SCHEMA 获取字段信息，包含注释
                 cursor.execute("""
-                    SELECT COLUMN_NAME, DATA_TYPE
+                    SELECT COLUMN_NAME, DATA_TYPE, COLUMN_COMMENT
                     FROM INFORMATION_SCHEMA.COLUMNS
                     WHERE TABLE_NAME = %s
                     ORDER BY ORDINAL_POSITION
@@ -616,10 +666,11 @@ class JoinSQLBuilder:
                 for row in cursor.fetchall():
                     field_name = row[0]
                     data_type = row[1].lower() if row[1] else "string"
+                    field_comment = row[2] or ""  # 字段注释，可能为空
                     
                     # 映射数据库类型到简单类型
                     field_type = self._map_db_type(data_type)
-                    fields.append((field_name, field_type))
+                    fields.append((field_name, field_type, field_comment))
                 
                 return fields
         except Exception as e:
@@ -726,6 +777,8 @@ def execute_join_query(
         columns = [col[0] for col in cursor.description]
         items = [dict(zip(columns, row)) for row in cursor.fetchall()]
     
+    field_info_list = [f.to_dict() for f in field_meta]
+    
     return {
         "items": items,
         "total": total,
@@ -739,7 +792,7 @@ def execute_join_query(
             "has_cycle": parse_result.has_cycle,
             "join_details": [r.to_dict() for r in parse_result.relations],
         },
-        "field_info": [f.to_dict() for f in field_meta],
+        "field_info": field_info_list,
     }
 
 

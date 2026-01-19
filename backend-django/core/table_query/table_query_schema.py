@@ -212,6 +212,7 @@ class FieldInfo(Schema):
     original_table: str = Field(..., description="原始表名")
     original_field: str = Field(..., description="原始字段名")
     field_type: str = Field("string", description="字段类型")
+    field_comment: str = Field("", description="字段注释（中文名称）")
 
 
 class JoinQueryResult(Schema):

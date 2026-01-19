@@ -70,6 +70,26 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.NOTICE("○ 菜单已存在：表数据查询"))
         
+        # 创建联合查询页面菜单
+        join_menu, join_created = Menu.objects.get_or_create(
+            path="/table-query/join",
+            defaults={
+                "name": "JoinQuery",
+                "title": "联合查询",
+                "type": "menu",
+                "parent": parent_menu,
+                "component": "/join-query/index",
+                "icon": "ant-design:merge-cells-outlined",
+                "order": 1,
+                "keepAlive": True,
+            }
+        )
+        
+        if join_created:
+            self.stdout.write(self.style.SUCCESS("✓ 创建菜单：联合查询"))
+        else:
+            self.stdout.write(self.style.NOTICE("○ 菜单已存在：联合查询"))
+        
         # 统计信息 - 检查表是否存在
         config_count = 0
         table_exists = False
@@ -105,7 +125,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("菜单初始化完成"))
         self.stdout.write(self.style.SUCCESS("=" * 50))
         self.stdout.write(f"  - 父菜单: {'新建' if parent_created else '已存在'}")
-        self.stdout.write(f"  - 主菜单: {'新建' if main_created else '已存在'}")
+        self.stdout.write(f"  - 表数据查询菜单: {'新建' if main_created else '已存在'}")
+        self.stdout.write(f"  - 联合查询菜单: {'新建' if join_created else '已存在'}")
         if table_exists:
             self.stdout.write(f"  - 可用配置数: {config_count}")
         self.stdout.write("")

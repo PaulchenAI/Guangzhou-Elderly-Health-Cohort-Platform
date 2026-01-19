@@ -241,3 +241,129 @@ export async function getTableQueryLogsApi(params?: {
     );
 }
 
+// ============ 联合查询类型定义 ============
+
+/**
+ * 关联表信息
+ */
+export interface JoinTableInfo {
+    table_name: string;
+    join_depth: number;
+    source_table: string;
+    source_columns: string[];
+    target_columns: string[];
+}
+
+/**
+ * 字段元信息
+ */
+export interface FieldInfo {
+    alias: string;
+    original_table: string;
+    original_field: string;
+    field_type: string;
+    field_comment?: string;  // 字段注释（中文名称）
+}
+
+/**
+ * 联合查询关联信息
+ */
+export interface JoinInfo {
+    primary_table: string;
+    joined_tables: string[];
+    join_depth: number;
+    total_tables: number;
+    has_cycle: boolean;
+    join_details: JoinTableInfo[];
+}
+
+/**
+ * 关联关系预览响应
+ */
+export interface JoinPreviewResponse {
+    primary_table: string;
+    join_tree: JoinTableInfo[];
+    total_related_tables: number;
+    max_depth: number;
+    has_cycle: boolean;
+    all_fields: FieldInfo[];
+}
+
+/**
+ * 联合查询参数
+ */
+export interface JoinQueryParams {
+    primary_table: string;
+    max_depth?: number;
+    include_tables?: string[];
+    exclude_tables?: string[];
+    page?: number;
+    page_size?: number;
+    filters?: FilterCondition[];
+    order_by?: string;
+}
+
+/**
+ * 联合查询结果
+ */
+export interface JoinQueryResult {
+    items: Record<string, any>[];
+    total: number;
+    page: number;
+    page_size: number;
+    join_info: JoinInfo;
+    field_info: FieldInfo[];
+}
+
+/**
+ * 联合查询导出参数
+ */
+export interface JoinExportParams {
+    primary_table: string;
+    max_depth?: number;
+    include_tables?: string[];
+    exclude_tables?: string[];
+    format: 'excel' | 'csv';
+    filters?: FilterCondition[];
+    max_rows?: number;
+}
+
+// ============ 联合查询 API ============
+
+/**
+ * 获取关联关系预览
+ */
+export async function getJoinPreviewApi(
+    tableName: string,
+    maxDepth?: number,
+) {
+    return requestClient.get<JoinPreviewResponse>(
+        `/api/core/table-query/join-preview/${encodeURIComponent(tableName)}`,
+        {
+            params: { max_depth: maxDepth },
+        },
+    );
+}
+
+/**
+ * 执行联合查询
+ */
+export async function executeJoinQueryApi(params: JoinQueryParams) {
+    return requestClient.post<JoinQueryResult>(
+        '/api/core/table-query/join-query',
+        params,
+    );
+}
+
+/**
+ * 导出联合查询结果
+ */
+export async function exportJoinDataApi(params: JoinExportParams) {
+    return requestClient.post(
+        '/api/core/table-query/join-export',
+        params,
+        {
+            responseType: 'blob',
+        },
+    );
+}

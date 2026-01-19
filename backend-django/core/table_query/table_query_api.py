@@ -972,6 +972,7 @@ def execute_join_query(request, data: JoinQueryIn):
                 original_table=f["original_table"],
                 original_field=f["original_field"],
                 field_type=f["field_type"],
+                field_comment=f.get("field_comment", ""),
             )
             for f in result["field_info"]
         ],
@@ -1054,6 +1055,9 @@ def export_join_query(request, data: JoinExportParams):
     
     返回:
     - 文件下载响应
+    
+    错误:
+    - 400: 数据量超过导出上限时返回错误
     """
     from core.table_query.join_query_utils import (
         JoinRelationParser,
@@ -1083,11 +1087,29 @@ def export_join_query(request, data: JoinExportParams):
             relations=parse_result.relations,
         )
         
-        # 构建查询 SQL（不分页，使用 max_rows 限制）
+        # 构建查询 SQL
         select_clause, field_meta = builder.build_select_fields()
         from_clause = builder.build_from_clause()
         where_clause, where_params = builder.build_where_clause(filters)
         
+        # 先查询总数，检查是否超过导出上限
+        count_sql_parts = ["SELECT COUNT(*) as cnt", from_clause]
+        if where_clause:
+            count_sql_parts.append(where_clause)
+        count_sql = "\n".join(count_sql_parts)
+        
+        with connection.cursor() as cursor:
+            cursor.execute(count_sql, where_params)
+            total_count = cursor.fetchone()[0]
+        
+        # 检查数据量是否超过导出上限
+        if total_count > data.max_rows:
+            raise HttpError(
+                400, 
+                f"数据量过大（{total_count} 条），超过导出上限 {data.max_rows} 条。请添加过滤条件缩小范围后再导出。"
+            )
+        
+        # 构建查询 SQL（使用 max_rows 限制，以防万一）
         sql_parts = [f"SELECT {select_clause}", from_clause]
         if where_clause:
             sql_parts.append(where_clause)
