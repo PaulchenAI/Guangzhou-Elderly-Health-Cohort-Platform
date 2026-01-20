@@ -1,32 +1,4 @@
-# survey Specification
-
-## Purpose
-TBD - created by archiving change add-survey-sync-button. Update Purpose after archive.
-## 需求
-### 需求：手动触发数据同步
-
-用户必须能够在问卷数据查询页面手动触发数据同步，以便在需要时立即获取最新的问卷数据。
-
-#### 场景：成功同步数据
-
-- **当** 用户在问卷数据查询页面点击"同步数据"按钮
-- **那么** 系统调用后端同步 API 触发增量数据导入
-- **并且** 按钮显示 loading 状态直到同步完成
-- **并且** 同步完成后显示结果消息（成功数、跳过数、失败数）
-- **并且** 数据表格自动刷新展示最新数据
-
-#### 场景：同步过程中禁止重复触发
-
-- **当** 用户点击"同步数据"按钮后，同步任务正在进行中
-- **那么** 按钮保持禁用状态
-- **并且** 用户无法重复触发同步操作
-
-#### 场景：同步失败处理
-
-- **当** 同步过程中发生错误
-- **那么** 系统显示错误提示消息
-- **并且** 按钮恢复可点击状态
-- **并且** 用户可以重新尝试同步
+## 修改需求
 
 ### 需求：同步 API 端点
 
@@ -47,47 +19,7 @@ TBD - created by archiving change add-survey-sync-button. Update Purpose after a
 - **当** 请求参数不包含 `survey_type` 字段
 - **那么** 同步所有类型的问卷数据
 
-### 需求：问卷查询字段验证
-
-问卷查询 API 必须验证过滤条件中的字段是否在 Schema 配置的可搜索字段列表中，确保查询安全性和一致性。
-
-#### 场景：验证过滤字段有效性
-
-- **当** 调用 `POST /api/core/survey/query` 并包含 `filters` 参数
-- **那么** 系统验证每个过滤条件的 `field` 是否在 Schema 的可搜索字段列表中
-- **并且** 如果字段有效，执行查询
-- **并且** 如果字段无效，返回 400 错误
-
-#### 场景：字段不支持搜索错误响应
-
-- **当** 过滤条件中的字段未在 Schema 中标记为 `searchable: true`
-- **那么** API 返回 HTTP 400 错误
-- **并且** 响应体包含 `detail` 对象
-- **并且** `detail.message` 说明哪个字段不支持搜索
-- **并且** `detail.available_fields` 数组列出所有可搜索字段
-
-#### 场景：模型字段与 Schema 字段的区分
-
-- **当** 过滤条件中的字段是 Django 模型的固定字段（如 `patient_name`、`survey_type`、`record_time`）
-- **那么** 系统允许使用这些字段进行过滤
-- **当** 过滤条件中的字段是 Schema 定义的动态字段
-- **那么** 系统检查该字段是否标记为 `searchable: true`
-
-### 需求：可搜索字段查询端点
-
-系统必须提供 API 端点查询指定问卷 Schema 的可搜索字段列表。
-
-#### 场景：查询 Schema 的可搜索字段
-
-- **当** 调用 `GET /api/core/survey/schemas/{schema_id}/searchable-fields`
-- **那么** 返回该 Schema 中所有标记为 `searchable: true` 的字段
-- **并且** 每个字段包含 `name`（字段名）、`title`（显示名称）、`type`（字段类型）
-
-#### 场景：按名称查询可搜索字段
-
-- **当** 调用 `GET /api/core/survey/schemas/by-name/{name}/searchable-fields`
-- **那么** 系统先按名称匹配 Schema（支持模糊匹配）
-- **并且** 返回匹配 Schema 的可搜索字段列表
+## 新增需求
 
 ### 需求：问卷数据同步到表查询系统
 
@@ -142,4 +74,3 @@ TBD - created by archiving change add-survey-sync-button. Update Purpose after a
 - **并且** 问卷数据同步不受影响（已成功导入到问卷系统）
 - **并且** 返回同步结果时包含表查询系统同步状态
 - **并且** 用户可以手动触发重新同步
-
