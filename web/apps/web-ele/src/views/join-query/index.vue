@@ -163,7 +163,7 @@ const manualJoinOptions = computed(() => {
 const [Grid, gridApi] = useVbenVxeGrid({
     gridOptions: {
         columns: columns.value,
-        height: 'auto',
+        height: 500,
         keepSource: true,
         proxyConfig: {
             autoLoad: false,
@@ -640,7 +640,7 @@ onMounted(() => {
 
 <template>
     <Page auto-content-height>
-        <div class="flex h-full gap-4">
+        <div class="flex h-full gap-4 overflow-hidden">
             <!-- 左侧：主表选择 -->
             <div class="w-64 flex-shrink-0">
                 <TableSelector :configs="configs" :loading="loading" :selected="primaryTable"
@@ -648,13 +648,14 @@ onMounted(() => {
             </div>
 
             <!-- 右侧：数据展示区域 -->
-            <div class="flex flex-1 flex-col overflow-hidden">
+            <div class="flex flex-1 flex-col min-h-0 overflow-hidden">
                 <ElCard shadow="never" class="flex h-full flex-col" :body-style="{
                     padding: '12px',
-                    flex: 1,
                     display: 'flex',
                     flexDirection: 'column',
-                    overflow: 'hidden',
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    height: '100%',
                 }">
                     <!-- 工具栏 -->
                     <div class="mb-3 flex items-center justify-between">
@@ -779,7 +780,7 @@ onMounted(() => {
                     </div>
 
                     <!-- 数据表格 -->
-                    <div class="flex-1 overflow-hidden">
+                    <div class="mt-3 overflow-x-auto" style="min-height: 400px;">
                         <Grid v-if="primaryTable" />
                         <ElEmpty v-else description="请从左侧选择主表" :image-size="100" />
                     </div>
@@ -794,8 +795,19 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 确保主容器可以正确计算高度 */
+.flex.h-full {
+    min-height: 0;
+}
+
+/* 确保表格不会横向溢出 */
 :deep(.vxe-grid) {
-    height: 100% !important;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+:deep(.vxe-table) {
+    max-width: 100%;
 }
 
 /* 关联配置折叠面板样式 */
