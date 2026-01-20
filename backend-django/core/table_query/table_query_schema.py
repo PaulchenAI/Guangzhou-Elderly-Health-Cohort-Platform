@@ -155,6 +155,17 @@ class TableQueryLogSchemaOut(ModelSchema):
 # 联合查询 Schema
 # =============================================================================
 
+class ManualJoin(Schema):
+    """手动字段匹配关联"""
+    source_field: str = Field(..., description="源字段名（主表的字段）")
+    target_table: str = Field(..., description="目标表名")
+    target_field: str = Field(..., description="目标字段名")
+    match_type: str = Field(
+        "exact",
+        description="匹配类型: exact(精确) | fuzzy(模糊)"
+    )
+
+
 class JoinQueryIn(Schema):
     """联合查询输入"""
     primary_table: str = Field(
@@ -175,6 +186,10 @@ class JoinQueryIn(Schema):
         None, 
         description="指定要排除的关联表"
     )
+    manual_joins: Optional[List[ManualJoin]] = Field(
+        None,
+        description="手动字段匹配关联列表"
+    )
     page: int = Field(1, ge=1, description="页码")
     page_size: int = Field(20, ge=1, le=100, description="每页数量（最大100）")
     filters: Optional[List[FilterCondition]] = Field(
@@ -194,6 +209,11 @@ class JoinTableInfo(Schema):
     source_table: str = Field(..., description="来源表（通过哪个表关联）")
     source_columns: List[str] = Field(..., description="来源表的外键字段")
     target_columns: List[str] = Field(..., description="目标表的关联字段")
+    join_type: str = Field("foreign_key", description="关联类型: foreign_key/manual")
+    match_type: Optional[str] = Field(
+        None,
+        description="手动关联匹配类型: exact/fuzzy"
+    )
 
 
 class JoinInfo(Schema):

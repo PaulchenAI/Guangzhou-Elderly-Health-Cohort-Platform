@@ -880,6 +880,7 @@ def execute_join_query(request, data: JoinQueryIn):
     - max_depth: 最大关联深度（可选，1-5级，默认2级）
     - include_tables: 指定要包含的关联表（可选，优先级高于 exclude_tables）
     - exclude_tables: 指定要排除的关联表（可选）
+    - manual_joins: 手动字段匹配关联（可选）
     - page: 页码（可选，默认1）
     - page_size: 每页数量（可选，默认20，最大100）
     - filters: 过滤条件（可选，字段名需使用 表名_字段名 格式）
@@ -904,12 +905,25 @@ def execute_join_query(request, data: JoinQueryIn):
     if data.filters:
         filters = [{"field": f.field, "operator": f.operator, "value": f.value} for f in data.filters]
     
+    manual_joins = None
+    if data.manual_joins:
+        manual_joins = [
+            {
+                "source_field": j.source_field,
+                "target_table": j.target_table,
+                "target_field": j.target_field,
+                "match_type": j.match_type,
+            }
+            for j in data.manual_joins
+        ]
+    
     try:
         result = do_join_query(
             primary_table=data.primary_table,
             max_depth=data.max_depth,
             include_tables=data.include_tables,
             exclude_tables=data.exclude_tables,
+            manual_joins=manual_joins,
             filters=filters,
             order_by=data.order_by,
             page=data.page,
@@ -932,6 +946,7 @@ def execute_join_query(request, data: JoinQueryIn):
             "order_by": data.order_by,
             "max_depth": data.max_depth,
             "joined_tables": result["join_info"]["joined_tables"],
+            "manual_joins": manual_joins or [],
         },
         record_count=len(result["items"]),
         execution_time=execution_time,
@@ -962,6 +977,8 @@ def execute_join_query(request, data: JoinQueryIn):
                     source_table=d["source_table"],
                     source_columns=d["source_columns"],
                     target_columns=d["target_columns"],
+                    join_type=d.get("join_type", "foreign_key"),
+                    match_type=d.get("match_type"),
                 )
                 for d in result["join_info"]["join_details"]
             ],
@@ -1021,6 +1038,8 @@ def get_join_preview(request, table_name: str, max_depth: int = 2):
                 source_table=d["source_table"],
                 source_columns=d["source_columns"],
                 target_columns=d["target_columns"],
+                join_type=d.get("join_type", "foreign_key"),
+                match_type=d.get("match_type"),
             )
             for d in result["join_tree"]
         ],

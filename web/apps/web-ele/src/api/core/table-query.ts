@@ -252,6 +252,8 @@ export interface JoinTableInfo {
     source_table: string;
     source_columns: string[];
     target_columns: string[];
+    join_type?: string;
+    match_type?: string | null;
 }
 
 /**
@@ -297,10 +299,21 @@ export interface JoinQueryParams {
     max_depth?: number;
     include_tables?: string[];
     exclude_tables?: string[];
+    manual_joins?: ManualJoin[];
     page?: number;
     page_size?: number;
     filters?: FilterCondition[];
     order_by?: string;
+}
+
+/**
+ * 手动字段匹配关联
+ */
+export interface ManualJoin {
+    source_field: string;
+    target_table: string;
+    target_field: string;
+    match_type?: 'exact' | 'fuzzy';
 }
 
 /**

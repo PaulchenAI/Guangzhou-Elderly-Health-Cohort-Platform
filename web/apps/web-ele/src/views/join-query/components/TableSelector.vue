@@ -18,6 +18,11 @@ import {
     ElSkeletonItem,
 } from 'element-plus';
 
+interface TableOption {
+    table_name: string;
+    display_name: string;
+}
+
 const props = defineProps<{
     configs: TableQueryConfig[];
     loading: boolean;
@@ -31,17 +36,32 @@ const emit = defineEmits<{
 // 搜索关键词
 const searchKeyword = ref('');
 
+// 数据表列表
+const allTables = computed<TableOption[]>(() => {
+    const tables: TableOption[] = [];
+
+    // 添加数据表
+    for (const config of props.configs) {
+        tables.push({
+            table_name: config.table_name,
+            display_name: config.display_name,
+        });
+    }
+
+    return tables;
+});
+
 // 过滤后的配置列表
 const filteredConfigs = computed(() => {
     if (!searchKeyword.value.trim()) {
-        return props.configs;
+        return allTables.value;
     }
 
     const keyword = searchKeyword.value.toLowerCase();
-    return props.configs.filter(
-        (config) =>
-            config.display_name.toLowerCase().includes(keyword) ||
-            config.table_name.toLowerCase().includes(keyword),
+    return allTables.value.filter(
+        (table) =>
+            table.display_name.toLowerCase().includes(keyword) ||
+            table.table_name.toLowerCase().includes(keyword),
     );
 });
 
@@ -57,7 +77,7 @@ function handleSelect(tableName: string) {
             <div class="flex items-center justify-between">
                 <span class="font-medium">选择主表</span>
                 <span class="text-xs text-gray-400">
-                    {{ configs.length }} 个
+                    {{ allTables.length }} 个
                 </span>
             </div>
         </template>
@@ -79,14 +99,14 @@ function handleSelect(tableName: string) {
                 </template>
                 <template #default>
                     <ElMenu v-if="filteredConfigs.length > 0" :default-active="selected" @select="handleSelect">
-                        <ElMenuItem v-for="config in filteredConfigs" :key="config.table_name"
-                            :index="config.table_name" class="!h-auto !py-2">
+                        <ElMenuItem v-for="table in filteredConfigs" :key="table.table_name" :index="table.table_name"
+                            class="!h-auto !py-2">
                             <div class="flex flex-col">
                                 <span class="text-sm font-medium">
-                                    {{ config.display_name }}
+                                    {{ table.display_name }}
                                 </span>
                                 <span class="text-xs text-gray-400">
-                                    {{ config.table_name }}
+                                    {{ table.table_name }}
                                 </span>
                             </div>
                         </ElMenuItem>

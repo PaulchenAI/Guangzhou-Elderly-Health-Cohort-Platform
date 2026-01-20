@@ -25,6 +25,9 @@ MAX_DEPTH_LIMIT = 5
 # 最大关联表数量
 MAX_TABLES_LIMIT = 10
 
+# 手动关联表数量限制
+MANUAL_JOIN_LIMIT = 5
+
 # 默认分页大小
 DEFAULT_PAGE_SIZE = 20
 
@@ -49,6 +52,9 @@ ALLOWED_OPERATORS = {
 
 # 表存在性缓存（避免重复查询）
 _table_exists_cache: Dict[str, bool] = {}
+
+# 表字段缓存（避免重复查询）
+_table_fields_cache: Dict[str, Dict[str, str]] = {}
 
 
 def check_table_exists(table_name: str) -> bool:
@@ -80,6 +86,50 @@ def check_table_exists(table_name: str) -> bool:
         return False
 
 
+def validate_identifier(name: str, identifier_type: str = "标识符") -> str:
+    """
+    校验标识符合法性
+    
+    Args:
+        name: 标识符名称
+        identifier_type: 标识符类型（用于错误提示）
+    """
+    name = (name or "").strip()
+    if not name or not IDENTIFIER_PATTERN.match(name):
+        raise ValueError(f"非法的{identifier_type}: {name}")
+    return name
+
+
+def get_table_field_map(table_name: str) -> Dict[str, str]:
+    """
+    获取表字段映射（小写字段名 -> 实际字段名）
+    
+    Args:
+        table_name: 表名
+        
+    Returns:
+        {lower_field_name: original_field_name}
+    """
+    global _table_fields_cache
+    
+    if table_name in _table_fields_cache:
+        return _table_fields_cache[table_name]
+    
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = %s
+            """, [table_name])
+            field_map = {row[0].lower(): row[0] for row in cursor.fetchall()}
+            _table_fields_cache[table_name] = field_map
+            return field_map
+    except Exception as e:
+        logger.error(f"获取表 {table_name} 字段失败: {e}")
+        return {}
+
+
 # =============================================================================
 # 数据结构
 # =============================================================================
@@ -92,6 +142,8 @@ class JoinRelation:
     source_table: str
     source_columns: List[str]
     target_columns: List[str]
+    join_type: str = "foreign_key"
+    match_type: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -100,6 +152,8 @@ class JoinRelation:
             "source_table": self.source_table,
             "source_columns": self.source_columns,
             "target_columns": self.target_columns,
+            "join_type": self.join_type,
+            "match_type": self.match_type,
         }
 
 
@@ -438,10 +492,16 @@ class JoinSQLBuilder:
             # 构建 JOIN 条件
             join_conditions = []
             for src_col, tgt_col in zip(relation.source_columns, relation.target_columns):
-                join_conditions.append(
-                    f"{self._quote(relation.source_table)}.{self._quote(src_col)} = "
-                    f"{self._quote(relation.table_name)}.{self._quote(tgt_col)}"
-                )
+                if relation.join_type == "manual" and relation.match_type == "fuzzy":
+                    join_conditions.append(
+                        f"{self._quote(relation.source_table)}.{self._quote(src_col)} "
+                        f"LIKE CONCAT('%', {self._quote(relation.table_name)}.{self._quote(tgt_col)}, '%')"
+                    )
+                else:
+                    join_conditions.append(
+                        f"{self._quote(relation.source_table)}.{self._quote(src_col)} = "
+                        f"{self._quote(relation.table_name)}.{self._quote(tgt_col)}"
+                    )
             
             if join_conditions:
                 parts.append(
@@ -701,11 +761,93 @@ class JoinSQLBuilder:
 # 辅助函数
 # =============================================================================
 
+def _build_manual_relations(
+    primary_table: str,
+    manual_joins: Optional[List[Dict[str, Any]]],
+) -> List[JoinRelation]:
+    """
+    将手动关联参数转换为 JoinRelation
+    """
+    if not manual_joins:
+        return []
+    
+    if len(manual_joins) > MANUAL_JOIN_LIMIT:
+        raise ValueError(
+            f"手动关联表数量 ({len(manual_joins)}) 超过限制 ({MANUAL_JOIN_LIMIT})。"
+            "请减少手动关联表数量。"
+        )
+    
+    if not check_table_exists(primary_table):
+        raise ValueError(f"主表不存在: {primary_table}")
+    
+    source_field_map = get_table_field_map(primary_table)
+    if not source_field_map:
+        raise ValueError(f"无法获取主表字段: {primary_table}")
+    
+    relations: List[JoinRelation] = []
+    for join in manual_joins:
+        source_field = validate_identifier(join.get("source_field", ""), "源字段")
+        target_table = validate_identifier(join.get("target_table", ""), "目标表")
+        target_field = validate_identifier(join.get("target_field", ""), "目标字段")
+        match_type = (join.get("match_type") or "exact").lower()
+        
+        if match_type not in {"exact", "fuzzy"}:
+            raise ValueError("match_type 必须是 exact 或 fuzzy")
+        
+        if not check_table_exists(target_table):
+            raise ValueError(f"目标表不存在: {target_table}")
+        
+        target_field_map = get_table_field_map(target_table)
+        if not target_field_map:
+            raise ValueError(f"无法获取目标表字段: {target_table}")
+        
+        source_field_key = source_field.lower()
+        if source_field_key not in source_field_map:
+            raise ValueError(f"主表字段不存在: {primary_table}.{source_field}")
+        
+        target_field_key = target_field.lower()
+        if target_field_key not in target_field_map:
+            raise ValueError(f"目标表字段不存在: {target_table}.{target_field}")
+        
+        relations.append(
+            JoinRelation(
+                table_name=target_table,
+                join_depth=1,
+                source_table=primary_table,
+                source_columns=[source_field_map[source_field_key]],
+                target_columns=[target_field_map[target_field_key]],
+                join_type="manual",
+                match_type=match_type,
+            )
+        )
+    
+    return relations
+
+
+def _merge_and_deduplicate_relations(
+    foreign_relations: List[JoinRelation],
+    manual_relations: List[JoinRelation],
+) -> List[JoinRelation]:
+    """
+    合并外键关联和手动关联，去除重复
+    """
+    merged = list(foreign_relations)
+    existing_tables = {r.table_name.upper() for r in foreign_relations}
+    
+    for relation in manual_relations:
+        if relation.table_name.upper() in existing_tables:
+            logger.info(f"跳过手动关联表（已存在外键关联）: {relation.table_name}")
+            continue
+        merged.append(relation)
+    
+    return merged
+
 def execute_join_query(
     primary_table: str,
     max_depth: int = 2,
     include_tables: Optional[List[str]] = None,
     exclude_tables: Optional[List[str]] = None,
+    manual_joins: Optional[List[Dict[str, Any]]] = None,
     filters: Optional[List[Dict[str, Any]]] = None,
     order_by: Optional[str] = None,
     page: int = 1,
@@ -719,6 +861,7 @@ def execute_join_query(
         max_depth: 最大关联深度
         include_tables: 要包含的关联表
         exclude_tables: 要排除的关联表
+        manual_joins: 手动字段匹配关联
         filters: 过滤条件
         order_by: 排序
         page: 页码
@@ -741,6 +884,17 @@ def execute_join_query(
         exclude_tables=exclude_tables,
     )
     parse_result = parser.parse(primary_table)
+    
+    manual_relations = _build_manual_relations(
+        primary_table=parse_result.primary_table,
+        manual_joins=manual_joins,
+    )
+    merged_relations = _merge_and_deduplicate_relations(
+        parse_result.relations,
+        manual_relations,
+    )
+    parse_result.relations = merged_relations
+    parse_result.max_depth = max([r.join_depth for r in merged_relations], default=0)
     
     # 检查关联表数量
     if len(parse_result.relations) > MAX_TABLES_LIMIT:

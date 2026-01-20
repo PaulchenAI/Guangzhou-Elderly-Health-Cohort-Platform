@@ -4,6 +4,7 @@ import type {
     FilterCondition,
     JoinPreviewResponse,
     JoinQueryResult,
+    ManualJoin,
     TableQueryConfig,
 } from '#/api/core/table-query';
 
@@ -22,6 +23,8 @@ import {
     ElDropdownMenu,
     ElEmpty,
     ElInput,
+    ElOption,
+    ElSelect,
     ElLoading,
     ElMessage,
     ElMessageBox,
@@ -41,6 +44,8 @@ import RelationTree from './components/RelationTree.vue';
 import TableSelector from './components/TableSelector.vue';
 import {
     buildJoinColumns,
+    expandJsonFields,
+    isJsonField,
     loadColumnPreferences,
     saveColumnPreferences,
 } from './data';
@@ -78,6 +83,14 @@ const maxDepth = ref(2);
 const queryResult = ref<JoinQueryResult | null>(null);
 const loadingData = ref(false);
 const fieldInfo = ref<FieldInfo[]>([]);
+const expandedFieldInfo = ref<FieldInfo[]>([]);
+const expandedItems = ref<any[]>([]);
+
+// 手动关联
+type ManualJoinDraft = ManualJoin & { id: string };
+const manualJoins = ref<ManualJoinDraft[]>([]);
+const manualJoinTargets = ref<Record<string, FieldInfo[]>>({});
+const loadingManualTargets = ref<Record<string, boolean>>({});
 
 // 列选择器
 const columnSelectorVisible = ref(false);
@@ -89,13 +102,62 @@ const relationCollapseActive = ref<string[]>(['relation']);
 // 搜索表单
 const searchForm = ref<Record<string, any>>({});
 
-// 动态列配置
-const columns = computed(() =>
-    buildJoinColumns(
-        fieldInfo.value,
+// 动态列配置（使用展开后的字段信息）
+const columns = computed(() => {
+    // 使用展开后的字段信息，如果没有则使用原始字段信息
+    const fieldsToUse = expandedFieldInfo.value.length > 0 ? expandedFieldInfo.value : fieldInfo.value;
+    const result = buildJoinColumns(
+        fieldsToUse,
         visibleColumns.value.length > 0 ? visibleColumns.value : undefined,
-    ),
+    );
+    return result;
+});
+
+const resolvedPrimaryTable = computed(
+    () => relations.value?.primary_table || primaryTable.value,
 );
+
+const primaryTableFields = computed(() => {
+    if (!relations.value?.all_fields) {
+        return [];
+    }
+    const fields = relations.value.all_fields.filter(
+        (field) => field.original_table === resolvedPrimaryTable.value,
+    );
+    // 如果字段没有 field_comment，尝试从表配置中获取
+    const tableConfig = configs.value.find(c => c.table_name === resolvedPrimaryTable.value);
+    if (tableConfig?.config_json?.fields) {
+        const fieldConfigMap = new Map(
+            tableConfig.config_json.fields.map((f: { name: string; displayName: string }) => [
+                f.name,
+                f.displayName,
+            ]),
+        );
+        return fields.map(field => ({
+            ...field,
+            field_comment: field.field_comment || fieldConfigMap.get(field.original_field) || '',
+        }));
+    }
+
+    return fields;
+});
+
+const manualJoinOptions = computed(() => {
+    const options: Array<{ value: string; label: string }> = [];
+
+    // 添加数据表
+    for (const config of configs.value) {
+        options.push({
+            value: config.table_name,
+            label: config.display_name
+                ? `${config.display_name} (${config.table_name})`
+                : config.table_name,
+        });
+    }
+
+
+    return options;
+});
 
 // 使用 VxeGrid
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -106,7 +168,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
         proxyConfig: {
             autoLoad: false,
             ajax: {
-                query: async ({ page }) => {
+                query: async ({ page }: { page: { currentPage: number; pageSize: number } }) => {
                     if (!primaryTable.value) {
                         return { items: [], total: 0 };
                     }
@@ -130,6 +192,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
                             selectedTables.value.length > 0
                                 ? selectedTables.value
                                 : undefined,
+                        manual_joins: buildManualJoinParams(),
                         page: page.currentPage,
                         page_size: page.pageSize,
                         filters: filters.length > 0 ? filters : undefined,
@@ -139,7 +202,74 @@ const [Grid, gridApi] = useVbenVxeGrid({
                     queryResult.value = result;
                     fieldInfo.value = result.field_info || [];
 
-                    return result;
+                    // 展开 JSON 字段
+                    let finalResult = result;
+                    if (result.items && result.items.length > 0) {
+                        const { expandedFieldInfo: expanded, expandedItems: expandedData } = expandJsonFields(
+                            fieldInfo.value,
+                            result.items,
+                        );
+                        expandedFieldInfo.value = expanded;
+                        expandedItems.value = expandedData;
+
+                        // 处理可见列：如果有展开的新字段
+                        if (expanded.length > fieldInfo.value.length) {
+                            const newFields = expanded.slice(fieldInfo.value.length);
+                            const jsonFields = fieldInfo.value.filter(f => isJsonField(f.original_field, f.field_type));
+
+                            // 如果 visibleColumns 为空，显示所有字段（包括展开的）
+                            if (visibleColumns.value.length === 0) {
+                                // 不设置 visibleColumns，让所有字段都显示
+                            } else {
+                                // 如果 visibleColumns 包含原始 JSON 字段，自动包含其展开字段
+                                const jsonFieldAliases = new Set(jsonFields.map(f => f.alias));
+                                const shouldAutoInclude = Array.from(jsonFieldAliases).some(alias =>
+                                    visibleColumns.value.includes(alias)
+                                );
+
+                                if (shouldAutoInclude) {
+                                    // 找到所有被选中的 JSON 字段，添加它们的展开字段
+                                    for (const jsonField of jsonFields) {
+                                        if (visibleColumns.value.includes(jsonField.alias)) {
+                                            // 添加这个 JSON 字段的所有展开字段
+                                            const expandedFieldsForThisJson = newFields.filter(f =>
+                                                f.alias.startsWith(`${jsonField.alias}_`)
+                                            );
+                                            for (const expandedField of expandedFieldsForThisJson) {
+                                                if (!visibleColumns.value.includes(expandedField.alias)) {
+                                                    visibleColumns.value.push(expandedField.alias);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // 保存更新后的列偏好
+                                    saveColumnPreferences(primaryTable.value, visibleColumns.value);
+                                } else {
+                                    // 如果没有选中 JSON 字段，但用户可能想看到展开字段
+                                    // 可以选择自动添加所有展开字段，或者保持原样
+                                    // 这里我们选择自动添加所有展开字段
+                                    const newFieldAliases = newFields.map(f => f.alias);
+                                    for (const alias of newFieldAliases) {
+                                        if (!visibleColumns.value.includes(alias)) {
+                                            visibleColumns.value.push(alias);
+                                        }
+                                    }
+                                    saveColumnPreferences(primaryTable.value, visibleColumns.value);
+                                }
+                            }
+                        }
+
+                        // 更新返回的数据，使用展开后的数据
+                        finalResult = {
+                            ...result,
+                            items: expandedData,
+                        };
+                    } else {
+                        expandedFieldInfo.value = fieldInfo.value;
+                        expandedItems.value = result.items || [];
+                    }
+
+                    return finalResult;
                 },
             },
         },
@@ -161,7 +291,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
 async function fetchConfigs() {
     try {
         loading.value = true;
-        configs.value = await getAllTableQueryConfigsApi(true);
+        const tableConfigs = await getAllTableQueryConfigsApi(true);
+        configs.value = tableConfigs;
     } catch (error) {
         console.error('加载配置列表失败:', error);
         ElMessage.error('加载配置列表失败');
@@ -199,6 +330,87 @@ async function fetchRelations() {
     }
 }
 
+async function loadManualTargetFields(tableName: string) {
+    if (!tableName || manualJoinTargets.value[tableName]) {
+        return;
+    }
+
+    try {
+        loadingManualTargets.value = {
+            ...loadingManualTargets.value,
+            [tableName]: true,
+        };
+        const preview = await getJoinPreviewApi(tableName, 1);
+        let fields = preview.all_fields.filter(
+            (field) => field.original_table === preview.primary_table,
+        );
+
+        // 如果字段没有 field_comment，尝试从表配置中获取
+        const tableConfig = configs.value.find(c => c.table_name === tableName);
+        if (tableConfig?.config_json?.fields) {
+            const fieldConfigMap = new Map(
+                tableConfig.config_json.fields.map((f: { name: string; displayName: string }) => [
+                    f.name,
+                    f.displayName,
+                ]),
+            );
+            fields = fields.map(field => ({
+                ...field,
+                field_comment: field.field_comment || fieldConfigMap.get(field.original_field) || '',
+            }));
+        }
+
+        manualJoinTargets.value = {
+            ...manualJoinTargets.value,
+            [tableName]: fields,
+        };
+    } catch (error) {
+        console.error('加载手动关联字段失败:', error);
+        ElMessage.error('加载手动关联字段失败');
+    } finally {
+        loadingManualTargets.value = {
+            ...loadingManualTargets.value,
+            [tableName]: false,
+        };
+    }
+}
+
+function addManualJoin() {
+    if (!primaryTable.value) {
+        ElMessage.warning('请先选择主表');
+        return;
+    }
+    manualJoins.value.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        source_field: '',
+        target_table: '',
+        target_field: '',
+        match_type: 'exact',
+    });
+}
+
+function removeManualJoin(index: number) {
+    manualJoins.value.splice(index, 1);
+}
+
+function formatFieldLabel(field: FieldInfo) {
+    return field.field_comment
+        ? `${field.field_comment}/${field.original_field}`
+        : field.original_field;
+}
+
+function buildManualJoinParams() {
+    const params = manualJoins.value
+        .filter((item) => item.source_field && item.target_table && item.target_field)
+        .map((item) => ({
+            source_field: item.source_field,
+            target_table: item.target_table,
+            target_field: item.target_field,
+            match_type: item.match_type || 'exact',
+        }));
+    return params.length > 0 ? params : undefined;
+}
+
 /**
  * 处理主表变化
  */
@@ -208,6 +420,8 @@ function handlePrimaryTableChange(tableName: string) {
     searchForm.value = {};
     queryResult.value = null;
     fieldInfo.value = [];
+    manualJoins.value = [];
+    manualJoinTargets.value = {};
 }
 
 /**
@@ -275,10 +489,6 @@ async function handleExport(format: 'csv' | 'excel') {
         return;
     }
 
-    // #region agent log
-    const exportStartTime = Date.now();
-    fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '开始导出操作', data: { format, primaryTable: primaryTable.value, exportStartTime }, timestamp: exportStartTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
-    // #endregion
 
     // 显示加载弹窗
     const loadingInstance = ElLoading.service({
@@ -326,17 +536,9 @@ async function handleExport(format: 'csv' | 'excel') {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
 
-        // #region agent log
-        const exportEndTime = Date.now();
-        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '导出操作成功', data: { duration: exportEndTime - exportStartTime, format }, timestamp: exportEndTime, sessionId: 'debug-session', hypothesisId: 'B' }) }).catch(() => { });
-        // #endregion
 
         ElMessage.success('导出成功');
     } catch (error: any) {
-        // #region agent log
-        const exportErrorTime = Date.now();
-        fetch('http://127.0.0.1:7242/ingest/cf8ff95f-de72-47dd-8afe-97aa92cf01c7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'index.vue:handleExport', message: '导出操作失败', data: { duration: exportErrorTime - exportStartTime, error: error?.toString?.() }, timestamp: exportErrorTime, sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
-        // #endregion
         console.error('导出失败:', error);
 
         // 检测是否是超时错误
@@ -391,10 +593,23 @@ function handleLoadConfig(config: {
     includeTables: string[];
     maxDepth: number;
     visibleColumns?: string[];
+    manualJoins?: ManualJoin[];
 }) {
     primaryTable.value = config.primaryTable;
     selectedTables.value = config.includeTables;
     maxDepth.value = config.maxDepth;
+    manualJoins.value = (config.manualJoins || []).map((item) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        source_field: item.source_field,
+        target_table: item.target_table,
+        target_field: item.target_field,
+        match_type: item.match_type || 'exact',
+    }));
+    manualJoins.value.forEach((item) => {
+        if (item.target_table) {
+            loadManualTargetFields(item.target_table);
+        }
+    });
 
     if (config.visibleColumns) {
         visibleColumns.value = config.visibleColumns;
@@ -409,6 +624,8 @@ function handleLoadConfig(config: {
 // 监听主表变化
 watch(primaryTable, () => {
     fetchRelations();
+    manualJoins.value = [];
+    manualJoinTargets.value = {};
 });
 
 // 监听列配置变化，更新表格
@@ -454,7 +671,7 @@ onMounted(() => {
                             <!-- 配置管理 -->
                             <ConfigManager :max-depth="maxDepth" :primary-table="primaryTable"
                                 :selected-tables="selectedTables" :visible-columns="visibleColumns"
-                                @load="handleLoadConfig" />
+                                :manual-joins="manualJoins" @load="handleLoadConfig" />
 
                             <!-- 列设置 -->
                             <ElButton :icon="Settings" :disabled="fieldInfo.length === 0"
@@ -491,6 +708,44 @@ onMounted(() => {
                                     :selected-tables="selectedTables" :table-display-names="tableDisplayNames"
                                     @depth-change="handleDepthChange" @update:selected-tables="selectedTables = $event"
                                     :embedded="true" />
+                            </div>
+                            <div class="mt-4 rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+                                <div class="mb-2 flex items-center justify-between">
+                                    <span class="text-sm font-medium">手动关联</span>
+                                    <ElButton size="small" @click="addManualJoin">添加关联</ElButton>
+                                </div>
+                                <div v-if="manualJoins.length === 0" class="text-xs text-gray-500">
+                                    暂无手动关联，支持选择主表字段与目标表字段进行匹配关联。
+                                </div>
+                                <div v-else class="space-y-2">
+                                    <div v-for="(item, index) in manualJoins" :key="item.id"
+                                        class="flex flex-wrap items-center gap-2 rounded-md bg-white p-2 dark:bg-gray-900">
+                                        <ElSelect v-model="item.source_field" filterable placeholder="主表字段"
+                                            style="width: 180px">
+                                            <ElOption v-for="field in primaryTableFields" :key="field.alias"
+                                                :label="formatFieldLabel(field)" :value="field.original_field" />
+                                        </ElSelect>
+                                        <ElSelect v-model="item.target_table" filterable allow-create placeholder="目标表"
+                                            style="width: 200px"
+                                            @change="(value: string) => { item.target_field = ''; loadManualTargetFields(value); }">
+                                            <ElOption v-for="option in manualJoinOptions" :key="option.value"
+                                                :label="option.label" :value="option.value" />
+                                        </ElSelect>
+                                        <ElSelect v-model="item.target_field" filterable allow-create placeholder="目标字段"
+                                            style="width: 180px" :loading="loadingManualTargets[item.target_table]">
+                                            <ElOption v-for="field in (manualJoinTargets[item.target_table] || [])"
+                                                :key="field.alias" :label="formatFieldLabel(field)"
+                                                :value="field.original_field" />
+                                        </ElSelect>
+                                        <ElSelect v-model="item.match_type" placeholder="匹配方式" style="width: 120px">
+                                            <ElOption label="精确" value="exact" />
+                                            <ElOption label="模糊" value="fuzzy" />
+                                        </ElSelect>
+                                        <ElButton type="danger" size="small" @click="removeManualJoin(index)">
+                                            删除
+                                        </ElButton>
+                                    </div>
+                                </div>
                             </div>
                         </ElCollapseItem>
                     </ElCollapse>

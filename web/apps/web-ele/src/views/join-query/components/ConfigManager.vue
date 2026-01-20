@@ -27,6 +27,7 @@ const props = defineProps<{
     selectedTables: string[];
     maxDepth: number;
     visibleColumns: string[];
+    manualJoins: JoinQueryConfig['manualJoins'];
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +36,7 @@ const emit = defineEmits<{
         includeTables: string[];
         maxDepth: number;
         visibleColumns?: string[];
+        manualJoins?: JoinQueryConfig['manualJoins'];
     }];
 }>();
 
@@ -70,6 +72,7 @@ function handleSave() {
         includeTables: props.selectedTables,
         maxDepth: props.maxDepth,
         visibleColumns: props.visibleColumns.length > 0 ? props.visibleColumns : undefined,
+        manualJoins: props.manualJoins && props.manualJoins.length > 0 ? props.manualJoins : undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
@@ -92,6 +95,7 @@ function handleLoad(config: JoinQueryConfig) {
         includeTables: config.includeTables,
         maxDepth: config.maxDepth,
         visibleColumns: config.visibleColumns,
+        manualJoins: config.manualJoins,
     });
     loadDialogVisible.value = false;
     ElMessage.success(`已加载配置：${config.name}`);
@@ -148,6 +152,7 @@ function formatDate(dateStr: string): string {
                 <div class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-800">
                     <p><span class="text-gray-500">主表：</span>{{ primaryTable || '未选择' }}</p>
                     <p><span class="text-gray-500">关联表：</span>{{ selectedTables.length }} 个</p>
+                    <p><span class="text-gray-500">手动关联：</span>{{ manualJoins?.length || 0 }} 个</p>
                     <p><span class="text-gray-500">关联深度：</span>{{ maxDepth }} 级</p>
                 </div>
             </div>
@@ -165,8 +170,8 @@ function formatDate(dateStr: string): string {
                     <div class="flex-1 cursor-pointer" @click="handleLoad(config)">
                         <p class="font-medium">{{ config.name }}</p>
                         <p class="text-sm text-gray-500">
-                            {{ config.primaryTable }} · {{ config.includeTables.length }} 个关联表 · {{ config.maxDepth }}
-                            级深度
+                            {{ config.primaryTable }} · {{ config.includeTables.length }} 个关联表 · {{
+                                config.manualJoins?.length || 0 }} 个手动关联 · {{ config.maxDepth }} 级深度
                         </p>
                         <p class="text-xs text-gray-400">
                             {{ formatDate(config.updatedAt) }}
