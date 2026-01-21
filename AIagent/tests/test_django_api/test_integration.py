@@ -9,6 +9,8 @@ Django API 集成测试
 import asyncio
 import sys
 from pathlib import Path
+import os
+import pytest
 
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -18,8 +20,13 @@ from src.django_api.models import DjangoAPIConfig
 from src.utils.config_models import Settings
 
 
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_integration():
     """集成测试：测试登录和 API 调用"""
+    # 默认跳过：需要真实 backend-django 服务运行
+    if os.environ.get("RUN_DJANGO_API_INTEGRATION", "").strip() != "1":
+        pytest.skip("需要设置 RUN_DJANGO_API_INTEGRATION=1 并启动 backend-django 才运行该集成测试")
     print("=" * 60)
     print("Django API 集成测试")
     print("=" * 60)
@@ -142,8 +149,13 @@ async def test_integration():
     return True
 
 
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_ai_summary():
     """测试 AI 摘要生成"""
+    # 默认跳过：需要真实 backend-django 服务运行
+    if os.environ.get("RUN_DJANGO_API_INTEGRATION", "").strip() != "1":
+        pytest.skip("需要设置 RUN_DJANGO_API_INTEGRATION=1 并启动 backend-django 才运行该集成测试")
     print("\n" + "=" * 60)
     print("AI 摘要生成测试")
     print("=" * 60)

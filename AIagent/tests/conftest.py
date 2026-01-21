@@ -7,6 +7,13 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
+import sys
+
+# 确保测试环境可以同时 import `src.*` 与 `AIagent.src.*`
+# 注意：不要把 `<project>/src` 直接插入 sys.path，否则会遮蔽标准库 `logging`（项目内也有 `logging/` 包）。
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 
 @pytest.fixture

@@ -40,6 +40,8 @@ class Logger:
         self.name = name
         self.logger = logging.getLogger(name)
         self.logger.setLevel(getattr(logging, level.upper()))
+        # 避免重复输出：不向 root logger 传播
+        self.logger.propagate = False
         
         # 避免重复添加handler（但允许在测试时重新配置）
         # 如果logger已经有handlers且不是测试模式，则跳过

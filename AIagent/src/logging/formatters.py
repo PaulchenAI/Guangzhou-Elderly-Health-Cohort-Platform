@@ -58,6 +58,22 @@ class TextFormatter(logging.Formatter):
         datefmt = "%Y-%m-%d %H:%M:%S"
         super().__init__(fmt=fmt, datefmt=datefmt)
 
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        # 将 extra 字段以 JSON 形式附加到文本日志，便于排障
+        extras: Dict[str, Any] = {}
+        for key, value in record.__dict__.items():
+            if key not in [
+                "name", "msg", "args", "created", "filename", "funcName",
+                "levelname", "levelno", "lineno", "module", "msecs",
+                "message", "pathname", "process", "processName", "relativeCreated",
+                "thread", "threadName", "exc_info", "exc_text", "stack_info"
+            ]:
+                extras[key] = value
+        if extras:
+            return f"{base} | extra={json.dumps(extras, ensure_ascii=False)}"
+        return base
+
 
 def create_json_formatter() -> JSONFormatter:
     """创建JSON格式化器"""
