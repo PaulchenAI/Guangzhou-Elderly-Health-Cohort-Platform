@@ -68,6 +68,7 @@ __pycache__
 /.windsurf/rules/web.md
 /docs/hospital/*
 /docs/survey/*
+/docs/his/*
 backend-django/.env
 *.zip
 data/*

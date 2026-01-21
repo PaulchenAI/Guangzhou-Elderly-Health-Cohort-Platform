@@ -76,6 +76,17 @@ class PreferenceManager {
       this.initialPreferences,
     );
 
+    /**
+     * 说明：
+     * - 当前实现会优先使用缓存（localStorage）里的偏好设置；
+     * - 但应用名称（app.name）通常应以构建时/部署时配置为准（如 VITE_APP_TITLE），不应被旧缓存长期“锁死”。
+     * - 因此这里对 app.name 做一次定向覆盖：当 overrides/initialPreferences 中提供了 app.name 时，强制写入 mergedPreference。
+     */
+    if (this.initialPreferences?.app?.name) {
+      mergedPreference.app ||= {} as any;
+      mergedPreference.app.name = this.initialPreferences.app.name;
+    }
+
     // 更新偏好设置
     this.updatePreferences(mergedPreference);
 
