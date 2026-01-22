@@ -10,85 +10,34 @@ set "DEFAULT_PORT=8000"
 set "DEFAULT_WORKERS=4"
 set "DEFAULT_ENV=dev"
 
+set "COMMAND=%~1"
+if "%COMMAND%"=="" set "COMMAND=help"
+shift
+
 set "HOST=%DEFAULT_HOST%"
 set "PORT=%DEFAULT_PORT%"
 set "WORKERS=%DEFAULT_WORKERS%"
 set "ENV=%DEFAULT_ENV%"
-set "COMMAND="
 
 :parse_args
 if "%~1"=="" goto :args_done
-if /I "%~1"=="help" (set "COMMAND=help" & shift & goto :parse_args)
-if /I "%~1"=="--help" (set "COMMAND=help" & shift & goto :parse_args)
-if /I "%~1"=="dev" (if not defined COMMAND set "COMMAND=dev" & shift & goto :parse_args)
-if /I "%~1"=="prod" (if not defined COMMAND set "COMMAND=prod" & shift & goto :parse_args)
-if /I "%~1"=="uvicorn" (if not defined COMMAND set "COMMAND=uvicorn" & shift & goto :parse_args)
-if /I "%~1"=="scheduler" (if not defined COMMAND set "COMMAND=scheduler" & shift & goto :parse_args)
-if /I "%~1"=="migrate" (if not defined COMMAND set "COMMAND=migrate" & shift & goto :parse_args)
-if /I "%~1"=="init" (if not defined COMMAND set "COMMAND=init" & shift & goto :parse_args)
-if /I "%~1"=="install" (if not defined COMMAND set "COMMAND=install" & shift & goto :parse_args)
-if /I "%~1"=="loaddata" (if not defined COMMAND set "COMMAND=loaddata" & shift & goto :parse_args)
-if /I "%~1"=="shell" (if not defined COMMAND set "COMMAND=shell" & shift & goto :parse_args)
-if /I "%~1"=="stop" (if not defined COMMAND set "COMMAND=stop" & shift & goto :parse_args)
-if /I "%~1"=="status" (if not defined COMMAND set "COMMAND=status" & shift & goto :parse_args)
-if /I "%~1"=="-h" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for -h & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for -h & goto :show_help)
-  set "HOST=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="--host" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for --host & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for --host & goto :show_help)
-  set "HOST=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="-p" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for -p & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for -p & goto :show_help)
-  set "PORT=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="--port" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for --port & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for --port & goto :show_help)
-  set "PORT=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="-w" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for -w & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for -w & goto :show_help)
-  set "WORKERS=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="--workers" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for --workers & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for --workers & goto :show_help)
-  set "WORKERS=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="-e" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for -e & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for -e & goto :show_help)
-  set "ENV=!NEXT!" & shift & shift & goto :parse_args
-)
-if /I "%~1"=="--env" (
-  set "NEXT=%~2"
-  if "!NEXT!"=="" (echo [ERROR] Missing value for --env & goto :show_help)
-  if "!NEXT:~0,1!"=="-" (echo [ERROR] Missing value for --env & goto :show_help)
-  set "ENV=!NEXT!" & shift & shift & goto :parse_args
-)
-if not defined COMMAND (set "COMMAND=%~1" & shift & goto :parse_args)
+if /I "%~1"=="-h" (set "HOST=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="--host" (set "HOST=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="-p" (set "PORT=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="--port" (set "PORT=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="-w" (set "WORKERS=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="--workers" (set "WORKERS=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="-e" (set "ENV=%~2" & shift & shift & goto :parse_args)
+if /I "%~1"=="--env" (set "ENV=%~2" & shift & shift & goto :parse_args)
 shift
 goto :parse_args
 
 :args_done
-if not defined COMMAND set "COMMAND=help"
 set "ZQ_ENV=%ENV%"
 
 if /I "%COMMAND%"=="help" goto :show_help
 if /I "%COMMAND%"=="--help" goto :show_help
+if /I "%COMMAND%"=="-h" goto :show_help
 if /I "%COMMAND%"=="dev" goto :cmd_dev
 if /I "%COMMAND%"=="prod" goto :cmd_prod
 if /I "%COMMAND%"=="uvicorn" goto :cmd_uvicorn
