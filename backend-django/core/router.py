@@ -26,6 +26,7 @@ from core.oauth.oauth_api import router as oauth_router
 from core.table_query.table_query_api import router as table_query_router
 from core.survey.survey_api import router as survey_router
 from core.foreignkey.foreignkey_api import router as foreignkey_router
+from core.doc_api.doc_api import router as doc_api_router
 
 
 # 创建核心模块的总路由
@@ -53,4 +54,5 @@ core_router.add_router("/oauth", oauth_router, tags=["Core-OAuth", "OAuth认证"
 core_router.add_router("", table_query_router, tags=["Core-TableQuery", "表查询管理"])
 core_router.add_router("", survey_router, tags=["Core-Survey", "问卷管理"])
 core_router.add_router("", foreignkey_router, tags=["Core-ForeignKey", "外键关系元数据"])
+core_router.add_router("", doc_api_router, tags=["Core-DocAPI", "文档API查询"])
 

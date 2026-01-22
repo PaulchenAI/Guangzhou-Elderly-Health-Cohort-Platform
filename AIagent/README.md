@@ -499,6 +499,57 @@ python -m AIagent.src.django_api generate "查询问卷数据中的户外活动�
 python -m AIagent.src.django_api generate "查询表数据查询中的老人档案表前10个" --max-iter 10
 ```
 
+---
+
+## DOCX 接口文档导出 OpenAPI 3.x
+
+AIagent 支持将 Word（`.docx`）形式的接口规范文档解析并导出为 **OpenAPI 3.x JSON**，用于将存量接口文档转成机器可读格式（Swagger/代码生成/AI 调用编排），并输出解析报告用于定位缺失字段与格式异常。
+
+### 快速开始
+
+```bash
+# 导出 openapi.json + report.json
+python -m AIagent.src.docx_openapi export \
+  /mnt/f/work/zq-platform/docs/his/数据中台大临床服务规范-DVE版V1.1---养老队列系统.docx \
+  -o /mnt/f/work/zq-platform/docs/his/openapi.json \
+  --report /mnt/f/work/zq-platform/docs/his/report.json \
+  --use-llm \
+  --llm-temperature 0 \
+  --llm-max-tokens 32000 \
+  --llm-retries 2 \
+  --llm-cache-dir /mnt/f/work/zq-platform/docs/his/.docx_openapi_cache \
+  --log-level DEBUG \
+  --log-format text \
+  --log-dir /mnt/f/work/zq-platform/docs/his/aiagent-logs
+
+# 仅导出指定接口（按 operationId）
+python -m AIagent.src.docx_openapi export doc.docx -o /tmp/openapi.json --only PER_OUTP_0004
+
+# 断点续跑（推荐默认开启）：命中缓存会跳过 LLM 调用
+# 日志会出现：命中缓存，跳过 LLM 调用
+python -m AIagent.src.docx_openapi export doc.docx \
+  -o /tmp/openapi.json \
+  --report /tmp/report.json \
+  --use-llm \
+  --llm-cache-dir /tmp/.docx_openapi_cache
+
+# 禁用断点续跑：每次都重新调用 LLM（不走缓存）
+python -m AIagent.src.docx_openapi export doc.docx -o /tmp/openapi.json --use-llm --no-resume
+
+# 覆盖缓存：忽略已有缓存结果并重新生成（适合提示词/模型更新后重跑）
+python -m AIagent.src.docx_openapi export doc.docx -o /tmp/openapi.json --use-llm --overwrite-cache
+```
+
+### 说明
+
+- **最小校验**：默认会做 OpenAPI 结构最小校验；失败时仅输出 report（除非加 `--force`）
+- **示例提取**：优先尝试解析 JSON 示例；无法解析时会保留原始文本到 OpenAPI `example`
+- **覆盖写入**：每次运行都会**覆盖** `-o/--output` 与 `--report` 指定的文件（不会增量追加）
+- **断点续跑（缓存）**：
+  - 默认启用：将“单接口 LLM 解析成功并通过 Pydantic 校验的结果”落盘到 `--llm-cache-dir`（默认 `.docx_openapi_cache`）
+  - 中途出错后重跑：会优先复用缓存，只继续解析未完成/失败的接口，避免从头开始
+  - 若文档内容变化：缓存会按表格内容 hash 自动失效并重新解析
+
 **CLI 命令说明**：
 
 | 命令 | 说明 | 常用参数 |

@@ -48,6 +48,8 @@ class APIEndpoint:
         
         # 基本信息
         lines.append(f"【{self.method.upper()}】{self.path}")
+        # 显式包含 operation_id，便于 AI/检索与测试断言
+        lines.append(f"操作ID：{self.operation_id}")
         lines.append(f"功能：{self.summary or self.description or self.operation_id}")
         
         # 分类标签

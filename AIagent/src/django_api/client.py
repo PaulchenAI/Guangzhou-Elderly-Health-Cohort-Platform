@@ -351,6 +351,10 @@ class OpenAPIAwareClient:
             最匹配的端点，或 None
         """
         intent_lower = intent.lower()
+
+        # 强意图优先：登录/认证类应显著优先于“用户列表”等包含 user 的端点
+        # 典型案例：intent="用户登录" 时，不能因为 synonyms 扩展了 "user" 而误选 list_users
+        is_login_intent = ("登录" in intent) or ("login" in intent_lower)
         
         # 动作词分类（用于推断 HTTP 方法偏好）
         get_actions = ["获取", "查看", "列表", "列出", "显示", "list", "get", "show", "所有"]
@@ -466,6 +470,14 @@ class OpenAPIAwareClient:
                     score += len(kw) * 15
                 if kw in path_lower:
                     score += len(kw) * 8
+
+            # ===== 强意图加权 =====
+            if is_login_intent:
+                # 登录意图：显著偏好 operation_id/path/summary/description 包含 login/登录 的端点
+                if ("login" in ep.operation_id.lower()) or ("login" in ep.path.lower()):
+                    score += 1000
+                if ("登录" in ep.summary) or ("登录" in ep.description):
+                    score += 800
             
             # ===== 惩罚机制 =====
             

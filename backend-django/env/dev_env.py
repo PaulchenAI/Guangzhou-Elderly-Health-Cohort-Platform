@@ -97,3 +97,11 @@ FEISHU_APP_ID = os.environ.get('FEISHU_APP_ID', 'your-feishu-app-id')
 FEISHU_APP_SECRET = os.environ.get('FEISHU_APP_SECRET', 'your-feishu-app-secret')
 FEISHU_REDIRECT_URI = os.environ.get('FEISHU_REDIRECT_URI', 'http://localhost:5777/oauth/feishu/callback')
 
+# ================================================= #
+# ******** 文档 API 配置 *********** #
+# ================================================= #
+
+# 外部文档服务 API 地址（可选，如果为空则使用本地文件 docs/his/openapi.json）
+DOC_API_URL = os.environ.get('DOC_API_URL', '')
+# 外部文档服务 API 认证 Token（可选，用于访问需要认证的外部文档服务）
+DOC_API_TOKEN = os.environ.get('DOC_API_TOKEN', '')
