@@ -23,7 +23,7 @@
     python manage.py batch_create_table_configs --prefix WORKFLOW --config-file path/to/mapping.json
     
     # 使用 meaning.json 文件获取中文名称（优先级高于 config-file）
-    python manage.py batch_create_table_configs --prefix FORMTABLE --meaning-dir docs/hospital/commentsql
+    python manage.py batch_create_table_configs --prefix FORMTABLE --meaning-dir docs/hospital/c
     
     # 指定数据库表名前缀（匹配 meaning.json 时忽略前缀）
     python manage.py batch_create_table_configs --prefix dbo_FORMTABLE --table-prefix dbo_
@@ -43,6 +43,12 @@ SYSTEM_TABLE_PREFIXES = [
 
 class Command(BaseCommand):
     help = "批量创建表查询配置"
+
+    def _normalize_table_key(self, table_name: str) -> str:
+        return (table_name or "").upper()
+
+    def _normalize_field_key(self, field_name: str) -> str:
+        return (field_name or "").lower()
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -155,7 +161,7 @@ class Command(BaseCommand):
 
     def _strip_table_prefix(self, table_name, table_prefix):
         """去掉表名前缀，用于匹配 meaning.json"""
-        if table_prefix and table_name.startswith(table_prefix):
+        if table_prefix and table_name and table_name.lower().startswith((table_prefix or "").lower()):
             return table_name[len(table_prefix):]
         return table_name
     
@@ -183,8 +189,11 @@ class Command(BaseCommand):
                 # 显示 meaning.json 中的中文名称（去掉前缀后匹配）
                 meaning_name = ""
                 stripped_name = self._strip_table_prefix(t, table_prefix)
-                if meaning_mapping and stripped_name in meaning_mapping:
-                    meaning_name = f" ({meaning_mapping[stripped_name].get('table_meaning', '')})"
+                stripped_key = self._normalize_table_key(stripped_name)
+                if meaning_mapping and stripped_key in meaning_mapping:
+                    table_meaning = meaning_mapping[stripped_key].get('table_meaning', '')
+                    if table_meaning:
+                        meaning_name = f" ({table_meaning})"
                 self.stdout.write(f"  - {t}{meaning_name}{status}")
             if len(prefix_tables) > 10:
                 self.stdout.write(f"  ... 还有 {len(prefix_tables) - 10} 个表")
@@ -287,8 +296,9 @@ class Command(BaseCommand):
             # 获取 meaning.json 中该表的字段映射（去掉前缀后匹配）
             meaning_fields = {}
             stripped_name = self._strip_table_prefix(table_name, table_prefix)
-            if meaning_mapping and stripped_name in meaning_mapping:
-                meaning_fields = meaning_mapping[stripped_name].get('fields', {})
+            stripped_key = self._normalize_table_key(stripped_name)
+            if meaning_mapping and stripped_key in meaning_mapping:
+                meaning_fields = meaning_mapping[stripped_key].get('fields', {})
             
             fields = []
             for col in columns:
@@ -301,8 +311,8 @@ class Command(BaseCommand):
                 field_display_name = col_name
                 if col_comment and col_comment.strip():
                     field_display_name = col_comment.strip()
-                elif col_name in meaning_fields:
-                    field_display_name = meaning_fields[col_name]
+                elif self._normalize_field_key(col_name) in meaning_fields:
+                    field_display_name = meaning_fields[self._normalize_field_key(col_name)]
                 elif name_mapping and 'fields' in name_mapping:
                     table_fields = name_mapping['fields'].get(table_name, {})
                     if col_name in table_fields:
@@ -426,17 +436,21 @@ class Command(BaseCommand):
                     continue
                 
                 # 提取表的中文含义
-                table_meaning = table_data.get('inferred_meaning', '')
+                table_meaning = (table_data.get('original_comment') or '').strip()
+                if not table_meaning:
+                    table_meaning = (table_data.get('inferred_meaning') or '').strip()
                 
                 # 提取字段的中文含义
                 fields_mapping = {}
                 for field in table_data.get('fields', []):
                     field_name = field.get('field_name')
-                    field_meaning = field.get('inferred_meaning')
+                    field_meaning = (field.get('original_comment') or '').strip()
+                    if not field_meaning:
+                        field_meaning = (field.get('inferred_meaning') or '').strip()
                     if field_name and field_meaning:
-                        fields_mapping[field_name] = field_meaning
+                        fields_mapping[self._normalize_field_key(field_name)] = field_meaning
                 
-                mapping[table_name] = {
+                mapping[self._normalize_table_key(table_name)] = {
                     'table_meaning': table_meaning,
                     'fields': fields_mapping
                 }
@@ -479,8 +493,9 @@ class Command(BaseCommand):
         
         # 2. 使用 meaning.json 中的映射（去掉前缀后匹配）
         stripped_name = self._strip_table_prefix(table_name, table_prefix)
-        if meaning_mapping and stripped_name in meaning_mapping:
-            table_meaning = meaning_mapping[stripped_name].get('table_meaning')
+        stripped_key = self._normalize_table_key(stripped_name)
+        if meaning_mapping and stripped_key in meaning_mapping:
+            table_meaning = meaning_mapping[stripped_key].get('table_meaning')
             if table_meaning:
                 return table_meaning
         

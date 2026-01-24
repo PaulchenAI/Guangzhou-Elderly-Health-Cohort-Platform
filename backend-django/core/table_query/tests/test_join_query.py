@@ -9,7 +9,8 @@
 - API 集成测试（1级、2级、3级关联）
 """
 import json
-from django.test import TestCase, Client
+from unittest.mock import patch
+from django.test import TestCase, Client, SimpleTestCase
 from django.db import connection
 
 from core.foreignkey.foreignkey_model import ForeignKeyMetadata
@@ -153,12 +154,12 @@ class JoinRelationParserTest(TestCase):
         self.assertIn("BS_STAFF", result.primary_table)
 
 
-class JoinSQLBuilderTest(TestCase):
+class JoinSQLBuilderTest(SimpleTestCase):
     """SQL 构建器测试"""
     
     def setUp(self):
         """准备测试数据"""
-        # 创建测试用的关联关系
+        super().setUp()
         self.primary_table = "gzlry_BS_STAFF"
         self.relations = [
             JoinRelation(
@@ -176,6 +177,39 @@ class JoinSQLBuilderTest(TestCase):
                 target_columns=["MAINID"],
             ),
         ]
+
+        self._mock_table_fields = {
+            "gzlry_BS_STAFF": [
+                ("MAINID", "integer", ""),
+                ("DEPARTMENT_ID", "integer", ""),
+                ("STAFF_TYPE_ID", "integer", ""),
+            ],
+            "gzlry_BS_DEPARTMENT": [
+                ("MAINID", "integer", ""),
+            ],
+            "gzlry_BS_STAFF_TYPE": [
+                ("MAINID", "integer", ""),
+            ],
+        }
+
+        table_fields = self._mock_table_fields
+        self._patch_table_exists = patch(
+            "core.table_query.join_query_utils.check_table_exists",
+            side_effect=lambda table_name: table_name in table_fields,
+        )
+        self._patch_table_exists.start()
+        self.addCleanup(self._patch_table_exists.stop)
+
+        def fake_get_table_fields(_builder, table_name):
+            return table_fields.get(table_name, [])
+
+        self._patch_get_table_fields = patch.object(
+            JoinSQLBuilder,
+            "_get_table_fields",
+            new=fake_get_table_fields,
+        )
+        self._patch_get_table_fields.start()
+        self.addCleanup(self._patch_get_table_fields.stop)
     
     def test_build_select_fields(self):
         """测试 SELECT 字段构建"""
@@ -212,6 +246,37 @@ class JoinSQLBuilderTest(TestCase):
         self.assertIn("FROM", from_clause)
         self.assertIn("LEFT JOIN", from_clause)
         self.assertIn(self.primary_table, from_clause)
+
+    def test_duplicate_join_table_aliasing(self):
+        """测试重复 JOIN 表时自动生成唯一别名"""
+        relations = [
+            JoinRelation(
+                table_name="gzlry_BS_DEPARTMENT",
+                join_depth=1,
+                source_table="gzlry_BS_STAFF",
+                source_columns=["DEPARTMENT_ID"],
+                target_columns=["MAINID"],
+            ),
+            JoinRelation(
+                table_name="gzlry_BS_DEPARTMENT",
+                join_depth=1,
+                source_table="gzlry_BS_STAFF",
+                source_columns=["DEPARTMENT_ID"],
+                target_columns=["MAINID"],
+                join_type="manual",
+                match_type="exact",
+            ),
+        ]
+        builder = JoinSQLBuilder(
+            primary_table="gzlry_BS_STAFF",
+            relations=relations,
+        )
+
+        from_clause = builder.build_from_clause()
+        self.assertIn("AS `gzlry_BS_DEPARTMENT__2`", from_clause)
+
+        _, field_meta = builder.build_select_fields()
+        self.assertTrue(any(f.alias.startswith("gzlry_BS_DEPARTMENT__2_") for f in field_meta))
     
     def test_build_where_clause(self):
         """测试 WHERE 子句构建"""

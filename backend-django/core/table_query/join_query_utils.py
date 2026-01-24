@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 from django.db import connection
 
 from core.foreignkey.foreignkey_model import ForeignKeyMetadata
+from core.table_query.table_query_model import TableQueryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,30 @@ _table_exists_cache: Dict[str, bool] = {}
 
 # 表字段缓存（避免重复查询）
 _table_fields_cache: Dict[str, Dict[str, str]] = {}
+_table_query_field_display_cache: Dict[str, Dict[str, str]] = {}
+
+
+def _get_table_query_field_display_map(table_name: str) -> Dict[str, str]:
+    global _table_query_field_display_cache
+
+    key = (table_name or "").upper()
+    if key in _table_query_field_display_cache:
+        return _table_query_field_display_cache[key]
+
+    try:
+        config = TableQueryConfig.objects.filter(table_name__iexact=table_name, is_deleted=False).first()
+        fields = (config.config_json or {}).get("fields", []) if config else []
+        mapping: Dict[str, str] = {}
+        for f in fields or []:
+            name = (f.get("name") or "").strip()
+            display_name = (f.get("displayName") or "").strip()
+            if name and display_name:
+                mapping[name.lower()] = display_name
+        _table_query_field_display_cache[key] = mapping
+        return mapping
+    except Exception:
+        _table_query_field_display_cache[key] = {}
+        return {}
 
 
 def check_table_exists(table_name: str) -> bool:
@@ -426,7 +451,44 @@ class JoinSQLBuilder:
         self._field_meta: List[FieldMeta] = []
         self._all_fields: List[str] = []
         self._alias_to_original: Dict[str, Tuple[str, str]] = {}  # alias -> (table, field)
+        self._join_plan: Optional[List[Dict[str, Any]]] = None
     
+    def _build_join_plan(self) -> List[Dict[str, Any]]:
+        if self._join_plan is not None:
+            return self._join_plan
+        used_counts: Dict[str, int] = {}
+        current_identifier: Dict[str, str] = {}
+        primary_key = self.primary_table.upper()
+        used_counts[primary_key] = 1
+        current_identifier[primary_key] = self.primary_table
+
+        plan: List[Dict[str, Any]] = []
+        for relation in self.relations:
+            if not check_table_exists(relation.table_name):
+                logger.warning(f"跳过不存在的关联表: {relation.table_name}")
+                continue
+
+            target_base = relation.table_name
+            target_key = target_base.upper()
+            used_counts[target_key] = used_counts.get(target_key, 0) + 1
+            idx = used_counts[target_key]
+            target_identifier = target_base if idx == 1 else f"{target_base}__{idx}"
+
+            source_key = relation.source_table.upper()
+            source_identifier = current_identifier.get(source_key, relation.source_table)
+
+            plan.append({
+                "relation": relation,
+                "source_identifier": source_identifier,
+                "target_base": target_base,
+                "target_identifier": target_identifier,
+            })
+
+            current_identifier[target_key] = target_identifier
+
+        self._join_plan = plan
+        return plan
+
     def build_select_fields(self) -> Tuple[str, List[FieldMeta]]:
         """
         构建 SELECT 字段列表
@@ -439,38 +501,32 @@ class JoinSQLBuilder:
         self._alias_to_original = {}
         select_parts = []
         
-        # 获取所有表（主表 + 关联表），过滤掉不存在的表
-        all_tables = [self.primary_table]
-        for r in self.relations:
-            if check_table_exists(r.table_name):
-                all_tables.append(r.table_name)
-            else:
-                logger.warning(f"跳过不存在的关联表: {r.table_name}")
-        
-        for table_name in all_tables:
-            # 获取表的字段列表
-            fields = self._get_table_fields(table_name)
+        table_instances: List[Tuple[str, str]] = [(self.primary_table, self.primary_table)]
+        for item in self._build_join_plan():
+            table_instances.append((item["target_base"], item["target_identifier"]))
+
+        for base_table, table_identifier in table_instances:
+            fields = self._get_table_fields(base_table)
             
             for field_name, field_type, field_comment in fields:
-                # 构建别名：表名_字段名
-                alias = f"{table_name}_{field_name}"
+                alias = f"{table_identifier}_{field_name}"
                 
                 # 添加到 SELECT
                 select_parts.append(
-                    f"{self._quote(table_name)}.{self._quote(field_name)} AS {self._quote(alias)}"
+                    f"{self._quote(table_identifier)}.{self._quote(field_name)} AS {self._quote(alias)}"
                 )
                 
                 # 记录字段元信息
                 self._field_meta.append(FieldMeta(
                     alias=alias,
-                    original_table=table_name,
+                    original_table=table_identifier,
                     original_field=field_name,
                     field_type=field_type,
                     field_comment=field_comment,
                 ))
                 self._all_fields.append(alias)
                 # 记录别名到原始表名/字段名的映射
-                self._alias_to_original[alias] = (table_name, field_name)
+                self._alias_to_original[alias] = (table_identifier, field_name)
         
         return ", ".join(select_parts), self._field_meta
     
@@ -483,29 +539,32 @@ class JoinSQLBuilder:
         """
         parts = [f"FROM {self._quote(self.primary_table)}"]
         
-        for relation in self.relations:
-            # 检查关联表是否存在
-            if not check_table_exists(relation.table_name):
-                logger.warning(f"跳过不存在的关联表: {relation.table_name}")
-                continue
+        for item in self._build_join_plan():
+            relation = item["relation"]
+            source_identifier = item["source_identifier"]
+            target_base = item["target_base"]
+            target_identifier = item["target_identifier"]
                 
             # 构建 JOIN 条件
             join_conditions = []
             for src_col, tgt_col in zip(relation.source_columns, relation.target_columns):
                 if relation.join_type == "manual" and relation.match_type == "fuzzy":
                     join_conditions.append(
-                        f"{self._quote(relation.source_table)}.{self._quote(src_col)} "
-                        f"LIKE CONCAT('%', {self._quote(relation.table_name)}.{self._quote(tgt_col)}, '%')"
+                        f"{self._quote(source_identifier)}.{self._quote(src_col)} "
+                        f"LIKE CONCAT('%', {self._quote(target_identifier)}.{self._quote(tgt_col)}, '%')"
                     )
                 else:
                     join_conditions.append(
-                        f"{self._quote(relation.source_table)}.{self._quote(src_col)} = "
-                        f"{self._quote(relation.table_name)}.{self._quote(tgt_col)}"
+                        f"{self._quote(source_identifier)}.{self._quote(src_col)} = "
+                        f"{self._quote(target_identifier)}.{self._quote(tgt_col)}"
                     )
             
             if join_conditions:
+                join_table_sql = self._quote(target_base)
+                if target_identifier != target_base:
+                    join_table_sql = f"{join_table_sql} AS {self._quote(target_identifier)}"
                 parts.append(
-                    f"LEFT JOIN {self._quote(relation.table_name)} "
+                    f"LEFT JOIN {join_table_sql} "
                     f"ON {' AND '.join(join_conditions)}"
                 )
         
@@ -713,6 +772,7 @@ class JoinSQLBuilder:
             [(字段名, 字段类型, 字段注释), ...]
         """
         try:
+            config_display_map = _get_table_query_field_display_map(table_name)
             with connection.cursor() as cursor:
                 # 使用 INFORMATION_SCHEMA 获取字段信息，包含注释
                 cursor.execute("""
@@ -726,7 +786,9 @@ class JoinSQLBuilder:
                 for row in cursor.fetchall():
                     field_name = row[0]
                     data_type = row[1].lower() if row[1] else "string"
-                    field_comment = row[2] or ""  # 字段注释，可能为空
+                    field_comment = (row[2] or "").strip()
+                    if not field_comment:
+                        field_comment = (config_display_map.get(field_name.lower()) or "").strip()
                     
                     # 映射数据库类型到简单类型
                     field_type = self._map_db_type(data_type)
