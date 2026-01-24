@@ -180,6 +180,43 @@ def search_endpoint(request, search_in: DocEndpointSearchIn):
 
 
 # =============================================================================
+# 接口详情查询
+# =============================================================================
+
+@router.get(
+    "/doc-api/endpoints/{operation_id}",
+    auth=None,
+    response=DocEndpointDetailSchemaOut,
+    summary="获取文档接口详情"
+)
+def get_endpoint(request, operation_id: str):
+    """
+    获取文档接口详情
+    
+    根据 operation_id 获取指定接口的完整信息，包括请求参数、响应定义和示例数据。
+    
+    路径参数:
+    - operation_id: 接口操作 ID（如 PER_BASE_0001）
+    
+    返回:
+    - 接口基本信息（operation_id、name、method、path、summary、description）
+    - 请求参数信息（parameters、request_body）
+    - 响应信息（responses）
+    - 示例数据（request_example、response_example）
+    - 额外信息（request_fields、response_fields、location）
+    
+    AI 调用建议: 用于获取特定接口的详细定义，包括请求和响应格式。
+    """
+    detail, error = get_endpoint_detail(operation_id)
+    
+    if error:
+        logger.warning(f"获取接口详情失败: {error}")
+        raise HttpError(404, error)
+    
+    return detail
+
+
+# =============================================================================
 # 文档摘要查询
 # =============================================================================
 
