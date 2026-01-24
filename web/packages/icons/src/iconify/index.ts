@@ -51,3 +51,8 @@ export const EyeOutlined = createIconifyIcon('ant-design:eye-outlined');
 export const ElRefresh = createIconifyIcon('ep:refresh');
 export const ElRefreshRight = createIconifyIcon('ep:refresh-right');
 export const ElRefreshLeft = createIconifyIcon('ep:refresh-left');
+
+// 图表相关图标
+export const DataLine = createIconifyIcon('ep:data-line');
+export const TrendCharts = createIconifyIcon('ep:trend-charts');
+export const PieChart = createIconifyIcon('ep:pie-chart');

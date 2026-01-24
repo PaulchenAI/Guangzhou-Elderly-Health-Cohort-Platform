@@ -13,12 +13,12 @@ DATABASE_USER = os.environ.get('PRD_DB_USER', "test")
 # 数据库密码
 DATABASE_PASSWORD = os.environ.get('PRD_DB_PASSWORD', "123")
 # 数据库名
-DATABASE_NAME = "zq-admin"
+DATABASE_NAME = os.environ.get('PRD_DB_NAME') or os.environ.get('DB_NAME') or "zq-admin"
 
 # ================================================= #
 # ******** redis配置 *********** #
 # ================================================= #
-REDIS_PASSWORD = JWT_ACCESS_SECRET_KEY = os.environ.get('REDIS_PASSWORD', '')
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', '')
 REDIS_HOST = '172.18.0.4'
 REDIS_DB = '4'
 REDIS_PORT = 6379

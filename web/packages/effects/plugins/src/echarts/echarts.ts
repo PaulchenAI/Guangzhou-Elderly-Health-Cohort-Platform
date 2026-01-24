@@ -12,7 +12,7 @@ import type {
 } from 'echarts/components';
 import type { ComposeOption } from 'echarts/core';
 
-import { BarChart, LineChart, PieChart, RadarChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, RadarChart, ScatterChart } from 'echarts/charts';
 import {
   // 数据集组件
   DatasetComponent,
@@ -43,6 +43,7 @@ echarts.use([
   TitleComponent,
   PieChart,
   RadarChart,
+  ScatterChart,
   TooltipComponent,
   GridComponent,
   DatasetComponent,

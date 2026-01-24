@@ -13,7 +13,7 @@ DATABASE_USER = os.environ.get('UAT_DB_USER', "test")
 # 数据库密码
 DATABASE_PASSWORD = os.environ.get('UAT_DB_PASSWORD', "123")
 # 数据库名
-DATABASE_NAME = ""
+DATABASE_NAME = os.environ.get('UAT_DB_NAME') or os.environ.get('DB_NAME') or ""
 
 # ================================================= #
 # ******** redis配置  *********** #
