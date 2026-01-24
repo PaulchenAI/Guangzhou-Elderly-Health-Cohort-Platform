@@ -75,4 +75,4 @@ data/*
 web/.node/*
 docs/oracle_export/*
 docs/his/*
-backend-django/db.sqlite3
+backend-django/*.sqlite3
