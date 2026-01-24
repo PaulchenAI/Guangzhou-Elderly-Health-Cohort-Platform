@@ -28,7 +28,7 @@ DATABASE_USER = "fuadmin"
 # 数据库密码
 DATABASE_PASSWORD = "fuadmin"
 # 数据库名
-DATABASE_NAME = "fu_admin_pro"
+DATABASE_NAME = os.environ.get('DEV_DB_NAME') or os.environ.get('DB_NAME') or "fu_admin_pro"
 ```
 
 ### 安装依赖环境
