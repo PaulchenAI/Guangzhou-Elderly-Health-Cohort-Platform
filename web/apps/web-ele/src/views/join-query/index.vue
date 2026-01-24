@@ -11,7 +11,7 @@ import type {
 import { computed, onMounted, ref, watch } from 'vue';
 
 import { Page } from '@vben/common-ui';
-import { Download, Search, Settings } from '@vben/icons';
+import { DataLine, Download, Search, Settings } from '@vben/icons';
 
 import {
     ElButton,
@@ -23,6 +23,7 @@ import {
     ElDropdownMenu,
     ElEmpty,
     ElInput,
+    ElInputNumber,
     ElOption,
     ElSelect,
     ElLoading,
@@ -38,6 +39,7 @@ import {
     getJoinPreviewApi,
 } from '#/api/core/table-query';
 
+import ChartViewer from './components/ChartViewer.vue';
 import ColumnSelector from './components/ColumnSelector.vue';
 import ConfigManager from './components/ConfigManager.vue';
 import RelationTree from './components/RelationTree.vue';
@@ -99,8 +101,15 @@ const visibleColumns = ref<string[]>([]);
 // 关联配置折叠状态
 const relationCollapseActive = ref<string[]>(['relation']);
 
+// 视图模式：table 或 chart
+const viewMode = ref<'table' | 'chart'>('table');
+
 // 搜索表单
 const searchForm = ref<Record<string, any>>({});
+
+// 查询返回数量（实际上对应 page_size），用于图表/表格共用同一份结果集
+const queryLimit = ref<number>(100);
+const QUERY_LIMIT_MAX = 1000;
 
 // 动态列配置（使用展开后的字段信息）
 const columns = computed(() => {
@@ -275,8 +284,8 @@ const [Grid, gridApi] = useVbenVxeGrid({
         },
         pagerConfig: {
             enabled: true,
-            pageSize: 20,
-            pageSizes: [10, 20, 50, 100],
+            pageSize: 100,
+            pageSizes: [10, 20, 50, 100, 200, 500, 1000],
         },
         toolbarConfig: {
             refresh: { code: 'query' },
@@ -435,6 +444,16 @@ async function handleQuery() {
 
     try {
         loadingData.value = true;
+        const safeLimit = Math.min(Math.max(Number(queryLimit.value) || 100, 10), QUERY_LIMIT_MAX);
+        queryLimit.value = safeLimit;
+        // 将查询数量映射到分页 pageSize，并重置到第一页
+        gridApi.setGridOptions({
+            pagerConfig: {
+                currentPage: 1,
+                pageSize: safeLimit,
+                pageSizes: [10, 20, 50, 100, 200, 500, 1000],
+            },
+        });
         await gridApi.query();
     } catch (error: any) {
         console.error('查询失败:', error);
@@ -674,6 +693,12 @@ onMounted(() => {
                                 :selected-tables="selectedTables" :visible-columns="visibleColumns"
                                 :manual-joins="manualJoins" @load="handleLoadConfig" />
 
+                            <!-- 图表展示 -->
+                            <ElButton :icon="DataLine" :disabled="!queryResult || expandedItems.length === 0"
+                                @click="viewMode = 'chart'">
+                                图表展示
+                            </ElButton>
+
                             <!-- 列设置 -->
                             <ElButton :icon="Settings" :disabled="fieldInfo.length === 0"
                                 @click="columnSelectorVisible = true">
@@ -764,6 +789,16 @@ onMounted(() => {
                                     size="small" style="width: 150px" />
                             </div>
                         </template>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-600 dark:text-gray-300">
+                                查询数量:
+                            </span>
+                            <ElInputNumber v-model="queryLimit" :min="10" :max="QUERY_LIMIT_MAX" :step="10" size="small"
+                                controls-position="right" style="width: 140px" />
+                            <span class="text-xs text-gray-400">
+                                (≤ {{ QUERY_LIMIT_MAX }})
+                            </span>
+                        </div>
                         <div class="flex gap-2">
                             <ElButton type="primary" size="small" :icon="Search" @click="handleQuery">
                                 查询
@@ -774,15 +809,31 @@ onMounted(() => {
 
                     <!-- 执行查询按钮（未查询时显示） -->
                     <div v-if="primaryTable && !queryResult" class="mb-3 flex justify-center">
-                        <ElButton type="primary" size="large" :loading="loadingData" @click="handleQuery">
-                            执行联合查询
-                        </ElButton>
+                        <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-600 dark:text-gray-300">
+                                    查询数量:
+                                </span>
+                                <ElInputNumber v-model="queryLimit" :min="10" :max="QUERY_LIMIT_MAX" :step="10"
+                                    size="default" controls-position="right" style="width: 160px" />
+                            </div>
+                            <ElButton type="primary" size="large" :loading="loadingData" @click="handleQuery">
+                                执行联合查询
+                            </ElButton>
+                        </div>
                     </div>
 
-                    <!-- 数据表格 -->
-                    <div class="mt-3 overflow-x-auto" style="min-height: 400px;">
+                    <!-- 数据表格 / 图表视图 -->
+                    <div v-if="viewMode === 'table'" class="mt-3 overflow-x-auto" style="min-height: 400px;">
                         <Grid v-if="primaryTable" />
                         <ElEmpty v-else description="请从左侧选择主表" :image-size="100" />
+                    </div>
+
+                    <!-- 图表视图 -->
+                    <div v-else class="mt-3" style="min-height: 500px;">
+                        <ChartViewer :items="expandedItems"
+                            :field-info="expandedFieldInfo.length > 0 ? expandedFieldInfo : fieldInfo"
+                            :primary-table="primaryTable" @close="viewMode = 'table'" />
                     </div>
                 </ElCard>
             </div>
