@@ -73,3 +73,6 @@ backend-django/.env
 *.zip
 data/*
 web/.node/*
+docs/oracle_export/*
+docs/his/*
+backend-django/db.sqlite3

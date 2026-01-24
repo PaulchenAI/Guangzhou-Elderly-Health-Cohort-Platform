@@ -36,6 +36,7 @@ router = Router()
 
 @router.get(
     "/doc-api/endpoints",
+    auth=None,
     response=DocEndpointListOut,
     summary="获取文档接口列表（分页）"
 )
@@ -82,6 +83,7 @@ def list_endpoints(
 
 @router.get(
     "/doc-api/endpoints/{operation_id}",
+    auth=None,
     response=DocEndpointDetailSchemaOut,
     summary="获取文档接口详情"
 )
@@ -127,6 +129,7 @@ def get_endpoint(request, operation_id: str):
 
 @router.post(
     "/doc-api/endpoints/search",
+    auth=None,
     response=DocEndpointListOut,
     summary="搜索文档接口"
 )
@@ -182,6 +185,7 @@ def search_endpoint(request, search_in: DocEndpointSearchIn):
 
 @router.get(
     "/doc-api/summary",
+    auth=None,
     response=DocSummarySchemaOut,
     summary="获取文档摘要信息"
 )

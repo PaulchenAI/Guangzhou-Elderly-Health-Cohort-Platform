@@ -27,4 +27,6 @@ alibabacloud_dysmsapi20170525==4.1.2
 gunicorn==23.0.0
 # LLM SQL修复工具依赖
 python-dotenv>=1.0.0
+pytest==8.3.4
+pytest-django==4.10.0
 
