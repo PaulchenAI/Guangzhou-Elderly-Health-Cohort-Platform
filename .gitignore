@@ -73,3 +73,5 @@ backend-django/.env
 *.zip
 data/*
 web/.node/*
+docs/*
+backend-django/*.sqlite3
