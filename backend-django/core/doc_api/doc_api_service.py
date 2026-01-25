@@ -12,7 +12,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
 from django.conf import settings
+
+from core.doc_api.doc_api_model import DocApiInvokeLog
 
 logger = logging.getLogger(__name__)
 
@@ -627,3 +630,501 @@ def _count_methods(openapi_data: Dict[str, Any]) -> Dict[str, int]:
 def clear_cache():
     """清除文档数据缓存"""
     _cache.clear()
+
+
+# =============================================================================
+# 带访问状态的接口列表
+# =============================================================================
+
+def get_endpoints_list_with_access(
+    page: int = 1, 
+    page_size: int = 20,
+    include_inaccessible: bool = True
+) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:
+    """
+    获取带访问状态的接口列表
+    
+    Args:
+        page: 页码（从 1 开始）
+        page_size: 每页数量
+        include_inaccessible: 是否包含不可访问的接口
+        
+    Returns:
+        (items, total, error): 接口列表、总数和错误信息
+    """
+    openapi_data, error = get_openapi_data()
+    if error:
+        return [], 0, error
+    
+    # 从 paths 中提取接口信息
+    paths = openapi_data.get('paths', {})
+    endpoints = []
+    
+    for path, path_item in paths.items():
+        for method, operation in path_item.items():
+            # 跳过非 HTTP 方法的字段
+            if method.upper() not in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']:
+                continue
+            
+            ep_operation_id = operation.get('operationId', '')
+            accessible = is_endpoint_accessible(ep_operation_id)
+            
+            # 如果不包含不可访问的接口，则跳过
+            if not include_inaccessible and not accessible:
+                continue
+            
+            endpoint = {
+                'operation_id': ep_operation_id,
+                'name': operation.get('summary', operation.get('operationId', '')),
+                'method': method.upper(),
+                'path': path,
+                'summary': operation.get('summary'),
+                'accessible': accessible,
+            }
+            endpoints.append(endpoint)
+    
+    # 分页
+    total = len(endpoints)
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = endpoints[start:end]
+    
+    return items, total, None
+
+
+def search_endpoints_with_access(
+    name: Optional[str] = None,
+    path: Optional[str] = None,
+    method: Optional[str] = None,
+    operation_id: Optional[str] = None,
+    keyword: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    include_inaccessible: bool = True
+) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:
+    """
+    搜索带访问状态的接口
+    
+    Args:
+        name: 接口名称（模糊匹配）
+        path: 接口路径（模糊匹配）
+        method: HTTP 方法（精确匹配）
+        operation_id: 操作 ID（模糊匹配）
+        keyword: 关键词（在名称、路径、摘要中搜索）
+        page: 页码
+        page_size: 每页数量
+        include_inaccessible: 是否包含不可访问的接口
+        
+    Returns:
+        (items, total, error): 搜索结果、总数和错误信息
+    """
+    openapi_data, error = get_openapi_data()
+    if error:
+        return [], 0, error
+    
+    # 从 paths 中提取接口信息
+    paths = openapi_data.get('paths', {})
+    endpoints = []
+    
+    for ep_path, path_item in paths.items():
+        for ep_method, operation in path_item.items():
+            if ep_method.upper() not in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']:
+                continue
+            
+            ep_name = operation.get('summary', operation.get('operationId', ''))
+            ep_operation_id = operation.get('operationId', '')
+            ep_summary = operation.get('summary', '')
+            accessible = is_endpoint_accessible(ep_operation_id)
+            
+            # 如果不包含不可访问的接口，则跳过
+            if not include_inaccessible and not accessible:
+                continue
+            
+            # 应用过滤条件
+            if name and name.lower() not in ep_name.lower():
+                continue
+            
+            if path and path.lower() not in ep_path.lower():
+                continue
+            
+            if method and method.upper() != ep_method.upper():
+                continue
+            
+            if operation_id and operation_id.lower() not in ep_operation_id.lower():
+                continue
+            
+            if keyword:
+                keyword_lower = keyword.lower()
+                if not any([
+                    keyword_lower in ep_name.lower(),
+                    keyword_lower in ep_path.lower(),
+                    keyword_lower in ep_summary.lower(),
+                    keyword_lower in ep_operation_id.lower(),
+                ]):
+                    continue
+            
+            endpoint = {
+                'operation_id': ep_operation_id,
+                'name': ep_name,
+                'method': ep_method.upper(),
+                'path': ep_path,
+                'summary': ep_summary,
+                'accessible': accessible,
+            }
+            endpoints.append(endpoint)
+    
+    # 分页
+    total = len(endpoints)
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = endpoints[start:end]
+    
+    return items, total, None
+
+
+# =============================================================================
+# HIS 接口代理调用
+# =============================================================================
+
+# 调用超时时间（秒）
+HIS_API_TIMEOUT = 30
+
+
+def invoke_his_endpoint(
+    operation_id: str,
+    params: Dict[str, Any],
+    user_id: str = ""
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    代理调用 HIS 接口
+    
+    Args:
+        operation_id: 接口操作 ID
+        params: 请求参数
+        user_id: 调用用户 ID
+        
+    Returns:
+        (result, error): 调用结果和错误信息
+    """
+    # 检查访问权限
+    if not is_endpoint_accessible(operation_id):
+        return None, f"接口 {operation_id} 不允许调用"
+    
+    # 获取接口详情
+    detail, error, _ = get_endpoint_detail(operation_id)
+    if error:
+        return None, error
+    
+    # 获取 HIS API 配置
+    his_api_url = DOC_API_URL
+    his_api_token = DOC_API_TOKEN
+    
+    if not his_api_url:
+        return None, "未配置 HIS API URL（DOC_API_URL 环境变量）"
+    
+    # 构建请求 URL
+    endpoint_path = detail['path']
+    full_url = f"{his_api_url.rstrip('/')}{endpoint_path}"
+    
+    # 构建请求头
+    headers = {
+        'Content-Type': 'application/json',
+    }
+    if his_api_token:
+        headers['Authorization'] = f'Bearer {his_api_token}'
+    
+    # 记录开始时间
+    start_time = time.time()
+    
+    # 发起请求
+    try:
+        method = detail['method'].upper()
+        
+        if method == 'GET':
+            response = requests.get(
+                full_url,
+                params=params,
+                headers=headers,
+                timeout=HIS_API_TIMEOUT
+            )
+        else:
+            response = requests.request(
+                method,
+                full_url,
+                json=params,
+                headers=headers,
+                timeout=HIS_API_TIMEOUT
+            )
+        
+        # 计算耗时
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # 解析响应
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError:
+            response_data = {'raw': response.text}
+        
+        success = 200 <= response.status_code < 300
+        
+        # 保存调用日志
+        log = save_invoke_log(
+            operation_id=operation_id,
+            endpoint_name=detail['name'],
+            method=detail['method'],
+            path=detail['path'],
+            request_params=params,
+            response_data=response_data,
+            response_status=response.status_code,
+            duration_ms=duration_ms,
+            success=success,
+            error_message="" if success else f"HTTP {response.status_code}",
+            user_id=user_id
+        )
+        
+        return {
+            'success': success,
+            'status_code': response.status_code,
+            'duration_ms': duration_ms,
+            'data': response_data,
+            'log_id': str(log.id) if log else None
+        }, None
+        
+    except requests.Timeout:
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # 保存失败日志
+        log = save_invoke_log(
+            operation_id=operation_id,
+            endpoint_name=detail['name'],
+            method=detail['method'],
+            path=detail['path'],
+            request_params=params,
+            response_data={},
+            response_status=0,
+            duration_ms=duration_ms,
+            success=False,
+            error_message="请求超时",
+            user_id=user_id
+        )
+        
+        return {
+            'success': False,
+            'status_code': 0,
+            'duration_ms': duration_ms,
+            'data': None,
+            'error': '请求超时',
+            'log_id': str(log.id) if log else None
+        }, None
+        
+    except requests.RequestException as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        error_msg = str(e)
+        
+        # 保存失败日志
+        log = save_invoke_log(
+            operation_id=operation_id,
+            endpoint_name=detail['name'],
+            method=detail['method'],
+            path=detail['path'],
+            request_params=params,
+            response_data={},
+            response_status=0,
+            duration_ms=duration_ms,
+            success=False,
+            error_message=error_msg,
+            user_id=user_id
+        )
+        
+        return {
+            'success': False,
+            'status_code': 0,
+            'duration_ms': duration_ms,
+            'data': None,
+            'error': error_msg,
+            'log_id': str(log.id) if log else None
+        }, None
+
+
+def save_invoke_log(
+    operation_id: str,
+    endpoint_name: str,
+    method: str,
+    path: str,
+    request_params: Dict[str, Any],
+    response_data: Dict[str, Any],
+    response_status: int,
+    duration_ms: int,
+    success: bool,
+    error_message: str = "",
+    user_id: str = ""
+) -> Optional[DocApiInvokeLog]:
+    """
+    保存调用历史记录
+    
+    Returns:
+        保存的日志记录，失败返回 None
+    """
+    try:
+        log = DocApiInvokeLog.objects.create(
+            operation_id=operation_id,
+            endpoint_name=endpoint_name,
+            method=method,
+            path=path,
+            request_params=request_params,
+            response_data=response_data,
+            response_status=response_status,
+            duration_ms=duration_ms,
+            success=success,
+            error_message=error_message,
+            user_id=user_id
+        )
+        return log
+    except Exception as e:
+        logger.error(f"保存调用日志失败: {e}")
+        return None
+
+
+def get_invoke_logs(
+    operation_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20
+) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:
+    """
+    查询调用历史记录
+    
+    Args:
+        operation_id: 接口操作 ID（可选，用于筛选）
+        page: 页码
+        page_size: 每页数量
+        
+    Returns:
+        (items, total, error): 日志列表、总数和错误信息
+    """
+    try:
+        queryset = DocApiInvokeLog.objects.all()
+        
+        if operation_id:
+            queryset = queryset.filter(operation_id=operation_id)
+        
+        total = queryset.count()
+        
+        # 分页
+        start = (page - 1) * page_size
+        logs = queryset[start:start + page_size]
+        
+        items = []
+        for log in logs:
+            items.append({
+                'id': str(log.id),
+                'operation_id': log.operation_id,
+                'endpoint_name': log.endpoint_name,
+                'method': log.method,
+                'path': log.path,
+                'request_params': log.request_params,
+                'response_data': log.response_data,
+                'response_status': log.response_status,
+                'duration_ms': log.duration_ms,
+                'success': log.success,
+                'error_message': log.error_message,
+                'user_id': log.user_id,
+                'sys_create_datetime': log.sys_create_datetime.isoformat() if log.sys_create_datetime else None
+            })
+        
+        return items, total, None
+        
+    except Exception as e:
+        logger.error(f"查询调用日志失败: {e}")
+        return [], 0, str(e)
+
+
+def get_default_params(operation_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    获取接口的默认测试参数
+    
+    优先从 request_example 获取，如果不存在则生成空模板
+    
+    Args:
+        operation_id: 接口操作 ID
+        
+    Returns:
+        (params, error): 默认参数和错误信息
+    """
+    # 获取接口详情
+    detail, error, _ = get_endpoint_detail(operation_id)
+    if error:
+        return None, error
+    
+    # 优先使用 request_example
+    if detail.get('request_example'):
+        return detail['request_example'], None
+    
+    # 尝试从 request_body schema 生成模板
+    request_body = detail.get('request_body')
+    if request_body:
+        content = request_body.get('content', {})
+        json_content = content.get('application/json', {})
+        schema = json_content.get('schema', {})
+        
+        if schema:
+            template = _generate_schema_template(schema)
+            return template, None
+    
+    # 返回空对象
+    return {}, None
+
+
+def _generate_schema_template(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    根据 JSON Schema 生成模板
+    
+    Args:
+        schema: JSON Schema 定义
+        
+    Returns:
+        生成的模板对象
+    """
+    schema_type = schema.get('type', 'object')
+    
+    if schema_type == 'object':
+        template = {}
+        properties = schema.get('properties', {})
+        for prop_name, prop_schema in properties.items():
+            template[prop_name] = _generate_schema_value(prop_schema)
+        return template
+    elif schema_type == 'array':
+        items_schema = schema.get('items', {})
+        return [_generate_schema_value(items_schema)]
+    else:
+        return _generate_schema_value(schema)
+
+
+def _generate_schema_value(schema: Dict[str, Any]) -> Any:
+    """
+    根据 Schema 生成默认值
+    """
+    schema_type = schema.get('type', 'string')
+    
+    # 如果有示例值，使用示例值
+    if 'example' in schema:
+        return schema['example']
+    
+    # 如果有默认值，使用默认值
+    if 'default' in schema:
+        return schema['default']
+    
+    # 根据类型生成占位符
+    if schema_type == 'string':
+        return ""
+    elif schema_type == 'integer':
+        return 0
+    elif schema_type == 'number':
+        return 0.0
+    elif schema_type == 'boolean':
+        return False
+    elif schema_type == 'array':
+        return []
+    elif schema_type == 'object':
+        return _generate_schema_template(schema)
+    else:
+        return None

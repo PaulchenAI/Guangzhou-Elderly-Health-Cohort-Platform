@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type {
-    DocEndpoint,
     DocEndpointSearchParams,
+    DocEndpointWithAccess,
     DocSummary,
 } from '#/api/core/doc-api';
 
@@ -26,9 +26,9 @@ import {
 
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
-    getDocEndpointsApi,
+    getDocEndpointsWithAccessApi,
     getDocSummaryApi,
-    searchDocEndpointsApi,
+    searchDocEndpointsWithAccessApi,
 } from '#/api/core/doc-api';
 
 import EndpointDetail from './components/EndpointDetail.vue';
@@ -57,10 +57,10 @@ const detailVisible = ref(false);
 const selectedOperationId = ref('');
 
 // HTTP 方法颜色映射
-function getMethodTagType(method: string): '' | 'success' | 'warning' | 'danger' | 'info' {
-    const methodMap: Record<string, '' | 'success' | 'warning' | 'danger' | 'info'> = {
+function getMethodTagType(method: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' {
+    const methodMap: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'primary'> = {
         GET: 'success',
-        POST: '',
+        POST: 'primary',
         PUT: 'warning',
         DELETE: 'danger',
         PATCH: 'info',
@@ -91,14 +91,24 @@ const columns = [
     {
         field: 'path',
         title: '路径',
-        minWidth: 400,
+        minWidth: 350,
+    },
+    {
+        field: 'accessible',
+        title: '访问状态',
+        width: 120,
+        align: 'center' as const,
+        slots: { default: 'accessible' },
     },
     {
         field: 'summary',
         title: '摘要',
-        minWidth: 200,
+        minWidth: 180,
     },
 ];
+
+// 当前选中行的访问状态
+const selectedAccessible = ref(false);
 
 // 使用 VxeGrid
 const [Grid, gridApi] = useVbenVxeGrid({
@@ -121,13 +131,13 @@ const [Grid, gridApi] = useVbenVxeGrid({
 
                     let result;
                     if (hasSearchCondition) {
-                        result = await searchDocEndpointsApi({
+                        result = await searchDocEndpointsWithAccessApi({
                             ...searchForm.value,
                             page: page.currentPage,
                             page_size: page.pageSize,
                         });
                     } else {
-                        result = await getDocEndpointsApi(page.currentPage, page.pageSize);
+                        result = await getDocEndpointsWithAccessApi(page.currentPage, page.pageSize);
                     }
 
                     return {
@@ -147,7 +157,7 @@ const [Grid, gridApi] = useVbenVxeGrid({
         },
     },
     gridEvents: {
-        cellClick: ({ row }: { row: DocEndpoint }) => {
+        cellClick: ({ row }: { row: DocEndpointWithAccess }) => {
             handleRowClick(row);
         },
     },
@@ -193,8 +203,9 @@ function handleReset() {
 /**
  * 处理行点击
  */
-function handleRowClick(row: DocEndpoint) {
+function handleRowClick(row: DocEndpointWithAccess) {
     selectedOperationId.value = row.operation_id;
+    selectedAccessible.value = row.accessible;
     detailVisible.value = true;
 }
 
@@ -268,6 +279,14 @@ onMounted(() => {
                                 {{ row.method }}
                             </ElTag>
                         </template>
+                        <template #accessible="{ row }">
+                            <ElTag v-if="row.accessible" type="success" size="small">
+                                可访问
+                            </ElTag>
+                            <ElTag v-else type="info" size="small">
+                                不可访问
+                            </ElTag>
+                        </template>
                         <template #empty>
                             <ElEmpty description="暂无数据" :image-size="80" />
                         </template>
@@ -277,7 +296,8 @@ onMounted(() => {
         </div>
 
         <!-- 接口详情抽屉 -->
-        <EndpointDetail v-model:visible="detailVisible" :operation-id="selectedOperationId" />
+        <EndpointDetail v-model:visible="detailVisible" :operation-id="selectedOperationId"
+            :accessible="selectedAccessible" />
     </Page>
 </template>
 

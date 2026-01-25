@@ -83,3 +83,78 @@ class DocSummarySchemaOut(Schema):
     openapi_error_count: int = Field(0, description="OpenAPI 错误数量")
     # 额外信息
     methods_summary: Optional[Dict[str, int]] = Field(None, description="各 HTTP 方法的接口数量统计")
+
+
+# =============================================================================
+# 带访问状态的接口输出
+# =============================================================================
+
+class DocEndpointWithAccessOut(Schema):
+    """带访问状态的文档接口信息输出"""
+    operation_id: str = Field(..., description="接口操作 ID")
+    name: str = Field(..., description="接口名称")
+    method: str = Field(..., description="HTTP 方法（GET/POST/PUT/DELETE 等）")
+    path: str = Field(..., description="接口路径")
+    summary: Optional[str] = Field(None, description="接口摘要")
+    accessible: bool = Field(..., description="是否可访问")
+
+
+class DocEndpointWithAccessListOut(Schema):
+    """带访问状态的文档接口列表输出"""
+    total: int = Field(..., description="总记录数")
+    page: int = Field(1, description="当前页码")
+    page_size: int = Field(20, description="每页数量")
+    items: List[DocEndpointWithAccessOut] = Field(default=[], description="接口列表")
+
+
+# =============================================================================
+# 接口调用相关
+# =============================================================================
+
+class DocInvokeRequestIn(Schema):
+    """接口调用请求输入"""
+    params: Dict[str, Any] = Field(default={}, description="请求参数")
+
+
+class DocInvokeResponseOut(Schema):
+    """接口调用响应输出"""
+    success: bool = Field(..., description="是否调用成功")
+    status_code: int = Field(..., description="HTTP 状态码")
+    duration_ms: int = Field(..., description="调用耗时（毫秒）")
+    data: Optional[Any] = Field(None, description="响应数据")
+    error: Optional[str] = Field(None, description="错误信息")
+    log_id: Optional[str] = Field(None, description="调用日志 ID")
+
+
+class DocDefaultParamsOut(Schema):
+    """默认参数输出"""
+    params: Dict[str, Any] = Field(default={}, description="默认测试参数")
+
+
+# =============================================================================
+# 调用历史相关
+# =============================================================================
+
+class DocInvokeLogOut(Schema):
+    """调用历史记录输出"""
+    id: str = Field(..., description="记录 ID")
+    operation_id: str = Field(..., description="接口操作 ID")
+    endpoint_name: str = Field(..., description="接口名称")
+    method: str = Field(..., description="HTTP 方法")
+    path: str = Field(..., description="接口路径")
+    request_params: Dict[str, Any] = Field(default={}, description="请求参数")
+    response_data: Dict[str, Any] = Field(default={}, description="响应数据")
+    response_status: int = Field(..., description="HTTP 状态码")
+    duration_ms: int = Field(..., description="调用耗时（毫秒）")
+    success: bool = Field(..., description="是否成功")
+    error_message: str = Field("", description="错误信息")
+    user_id: str = Field("", description="调用用户 ID")
+    sys_create_datetime: Optional[str] = Field(None, description="创建时间")
+
+
+class DocInvokeLogListOut(Schema):
+    """调用历史列表输出"""
+    total: int = Field(..., description="总记录数")
+    page: int = Field(1, description="当前页码")
+    page_size: int = Field(20, description="每页数量")
+    items: List[DocInvokeLogOut] = Field(default=[], description="日志列表")
