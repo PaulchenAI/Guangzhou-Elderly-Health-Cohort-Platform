@@ -868,7 +868,15 @@ class OracleToMySQLConverter:
         return result
 
 
-def convert_file(input_path: str, output_path: str, prefix: str = '', force: bool = False, skip_existing: bool = False) -> tuple:
+def convert_file(
+    input_path: str,
+    output_path: str,
+    prefix: str = '',
+    force: bool = False,
+    skip_existing: bool = False,
+    table_prefix: str = '',
+    enable_comments: bool = False,
+) -> tuple:
     """
     转换单个文件
     
@@ -1065,6 +1073,11 @@ def convert_file(input_path: str, output_path: str, prefix: str = '', force: boo
         output_dir.mkdir(parents=True, exist_ok=True)
         
         converter = OracleToMySQLConverter()
+        converter.table_prefix = table_prefix
+        converter.enable_comments = enable_comments
+        if enable_comments:
+            converter._collect_comments(input_path)
+
         # 对于大文件，直接写入文件，避免内存累积
         result = converter.convert_file(input_path, str(output_file))
         
@@ -1202,16 +1215,15 @@ def convert_directory(
             output_filename = f"{prefix}{sql_file.name}" if prefix else sql_file.name
             output_file = output_path / output_filename
             
-            # 设置转换器选项
-            converter.reset()
-            converter.table_prefix = table_prefix
-            converter.enable_comments = enable_comments
-            
-            # 如果启用 COMMENT，先收集
-            if enable_comments:
-                converter._collect_comments(str(sql_file))
-            
-            success, skipped, reason = convert_file(str(sql_file), str(output_file), prefix, force, skip_existing)
+            success, skipped, reason = convert_file(
+                str(sql_file),
+                str(output_file),
+                prefix,
+                force,
+                skip_existing,
+                table_prefix=table_prefix,
+                enable_comments=enable_comments,
+            )
             
             if success:
                 if skipped:
@@ -1483,16 +1495,15 @@ def main():
         
         logger.info(f"转换文件: {input_file.name}")
         
-        # 创建转换器并设置选项
-        converter = OracleToMySQLConverter()
-        converter.table_prefix = args.table_prefix
-        converter.enable_comments = args.enable_comments
-        
-        # 如果启用 COMMENT，先收集
-        if args.enable_comments:
-            converter._collect_comments(str(input_file))
-        
-        success, skipped, reason = convert_file(str(input_file), str(output_file), args.prefix, args.force, args.skip_existing)
+        success, skipped, reason = convert_file(
+            str(input_file),
+            str(output_file),
+            args.prefix,
+            args.force,
+            args.skip_existing,
+            table_prefix=args.table_prefix,
+            enable_comments=args.enable_comments,
+        )
         
         if skipped:
             logger.info(f"  [跳过] {reason}")

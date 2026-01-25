@@ -209,7 +209,10 @@ const [Grid, gridApi] = useVbenVxeGrid({
 
                     // 更新字段信息和结果
                     queryResult.value = result;
-                    fieldInfo.value = result.field_info || [];
+                    fieldInfo.value = (result.field_info || []).map((f) => ({
+                        ...f,
+                        field_comment: f.field_comment || fillFieldCommentFromConfig(f) || '',
+                    }));
 
                     // 展开 JSON 字段
                     let finalResult = result;
@@ -406,6 +409,26 @@ function formatFieldLabel(field: FieldInfo) {
     return field.field_comment
         ? `${field.field_comment}/${field.original_field}`
         : field.original_field;
+}
+
+function normalizeTableNameForConfig(tableName: string) {
+    return tableName.replace(/__\d+$/, '');
+}
+
+function fillFieldCommentFromConfig(field: FieldInfo) {
+    if (field.field_comment) {
+        return field.field_comment;
+    }
+    const baseTableName = normalizeTableNameForConfig(field.original_table);
+    const tableConfig = configs.value.find((c) => c.table_name === baseTableName);
+    const configFields = (tableConfig as any)?.config_json?.fields;
+    if (Array.isArray(configFields)) {
+        const match = configFields.find((f: any) =>
+            String(f?.name || '').toLowerCase() === String(field.original_field || '').toLowerCase()
+        );
+        return String(match?.displayName || '').trim();
+    }
+    return '';
 }
 
 function buildManualJoinParams() {

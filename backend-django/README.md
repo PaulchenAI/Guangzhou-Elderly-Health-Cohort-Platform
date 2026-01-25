@@ -347,3 +347,211 @@ python start_scheduler.py
 ```bash
 python manage.py dumpdata core scheduler --indent 4 > db_init.json
 ```
+
+---
+
+## 数据初始化与导入（汇总）
+
+本节提供从“空库”到“可用数据”的推荐执行顺序，便于一键照做。更详细的参数说明请参考本文前面的对应章节，以及 `core/management/commands/` 下的命令源码。
+
+### 0. 前置准备
+
+1. 配置数据库连接：`env/dev_env.py`
+2. 安装依赖并激活虚拟环境
+3. 进入目录：`zq-platform/backend-django`
+
+### 1. 必做：迁移 + 初始数据
+
+```bash
+# 1) 生成迁移（如已有迁移文件可跳过）
+python manage.py makemigrations core scheduler
+
+# 2) 执行迁移
+python manage.py migrate
+
+# 3) 初始化基础数据
+python manage.py loaddata db_init.json
+```
+
+如遇到“迁移记录与表不一致”，先执行：
+
+```bash
+python manage.py check_migrations --app core --detailed
+python manage.py fix_migrations --app core --dry-run
+python manage.py fix_migrations --app core
+```
+
+### 2. 可选：菜单初始化
+
+```bash
+python manage.py init_table_query_menus
+python manage.py init_survey_menus
+```
+
+强制重建（会删除现有后重建）：
+
+```bash
+python manage.py init_table_query_menus --force
+python manage.py init_survey_menus --force
+```
+
+### 3. 可选：导入 Oracle 转换后的 SQL（导入业务全量表与数据）
+
+命令：`python manage.py import_oracle_sql ...`（支持自动修复、断点续导、失败重试、流式导入等）。
+
+推荐按 DDL + DML 分阶段导入：
+
+```bash
+# 1) 先导入表结构（DDL）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/create --all --batch-id ddl_batch --auto-fix --continue-on-error
+
+# 2) 再导入数据（DML）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/insert --all --batch-id dml_batch --auto-fix --continue-on-error
+```
+
+中断后继续（跳过已成功文件）：
+
+```bash
+python manage.py import_oracle_sql ../docs/hospital/convertsql/ --all --batch-id my_batch_001 --resume
+```
+
+### 4. 可选：外键关系元数据导入（用于表查询/元数据能力）
+
+```bash
+# 外键 JSON 元数据导入（默认探测 docs/hospital/foreignkey/）
+python manage.py import_foreignkey_metadata --truncate
+
+# 业务逻辑补充的手动外键关系
+python manage.py import_manual_foreignkeys --truncate-manual
+```
+
+`import_manual_foreignkeys` 说明：
+
+- 用途：补齐业务逻辑上存在、但数据库未声明的外键关系（写入外键元数据表），提升“联合查询”等功能的关联覆盖率
+- 常用参数：
+  - `--dry-run`：预览模式，不写入
+  - `--prefix gzlry_`：表名前缀（默认 `gzlry_`）
+  - `--truncate-manual`：仅清空“手动导入”的记录后再导入（推荐在重复执行前使用）
+
+示例（无参数导入）：
+
+```text
+$ python manage.py import_manual_foreignkeys
+手动外键关系导入
+============================================================
+表名前缀: gzlry_
+
+收集固定外键关系...
+固定外键关系: 6 条（跳过 0 条）
+
+发现动态表...
+发现 FORMTABLE_MAIN_* 表: 229 个
+发现 DC_FORM_* 表: 75 个
+
+总外键关系数: 310
+
+开始导入...
+  已处理 50/310
+  已处理 100/310
+  已处理 150/310
+  已处理 200/310
+  已处理 250/310
+  已处理 300/310
+导入完成！
+
+============================================================
+导入报告
+============================================================
+固定外键关系: 6
+FORMTABLE_MAIN_* 表: 229
+DC_FORM_* 表: 75
+总外键关系数: 310
+成功导入: 310
+```
+
+### 5. 可选：批量创建表查询配置
+
+```bash
+# 先列出可配置表
+python manage.py batch_create_table_configs --list
+
+# 按表名前缀创建或更新配置（示例）
+python manage.py batch_create_table_configs --prefix WORKFLOW
+python manage.py batch_create_table_configs --prefix BS --update
+```
+
+如需使用 `docs/hospital/commentsql` 的注释映射（供表与字段中文名展示），直接在创建/更新配置时指定 `--meaning-dir`（默认即为 `docs/hospital/commentsql`）：
+
+```bash
+# 使用 docs/hospital/commentsql 的 *_meaning.json 作为中文映射来源
+python manage.py batch_create_table_configs --prefix FORMTABLE --meaning-dir ../docs/hospital/commentsql
+python manage.py batch_create_table_configs --prefix BS --update --meaning-dir ../docs/hospital/commentsql
+```
+
+中文名称来源与优先级说明：
+
+- 表中文名：数据库表 COMMENT > meaning.json > 配置文件 > 表名
+- 字段中文名（写入 `config_json.fields[].displayName`）：数据库字段 COMMENT > meaning.json > 配置文件 > 字段名
+- meaning.json 取值规则：优先使用 `original_comment`，当 `original_comment` 为空时回退使用 `inferred_meaning`
+
+`--prefix` 与 `--table-prefix` 的区别：
+
+- `--prefix`：用于筛选“要处理哪些数据库表”（不传则必须使用 `--all` 或仅 `--list` 查看）
+- `--table-prefix`：用于匹配 meaning.json 时忽略数据库表名前缀（例如数据库表为 `gzlry_bs_department`，meaning.json 表名为 `BS_DEPARTMENT`，则传 `--table-prefix gzlry_`）
+
+常见场景：数据库表带前缀 `gzlry_`，且希望显示/同步 commentsql 的中文名：
+
+```bash
+# 先检查能否从 meaning.json 匹配到中文名（列表括号里会显示中文）
+python manage.py batch_create_table_configs --list --prefix gzlry_BS --table-prefix gzlry_ --meaning-dir ../docs/hospital/commentsql
+
+# 同步更新已入库的表查询配置（前端展示依赖数据库里的 TableQueryConfig.display_name / config_json）
+python manage.py batch_create_table_configs --prefix gzlry_BS --update --table-prefix gzlry_ --meaning-dir ../docs/hospital/commentsql
+```
+
+### 6. 可选：问卷数据同步（依赖外部问卷 API）
+
+1) 先同步 Schema：
+
+```bash
+python manage.py sync_survey_schemas --test-connection
+python manage.py sync_survey_schemas
+```
+
+2) 再导入问卷数据：
+
+```bash
+# 默认增量
+python manage.py import_survey_data
+
+# 全量导入
+python manage.py import_survey_data --full
+```
+
+3) 如需要把问卷数据同步到“表查询系统”对应的 `survey_{type}` 表：
+
+```bash
+python manage.py sync_survey_to_table_query
+```
+
+### 7. 可选：定时任务初始化与启动
+
+初始化内置任务配置到数据库：
+
+```bash
+python manage.py init_scheduler_jobs
+```
+
+启动调度器：
+
+```bash
+python start_scheduler.py
+```
+
+### 8. 校验清单（建议每步执行后抽查）
+
+- 迁移一致性：`python manage.py check_migrations --app core --detailed`
+- Oracle SQL 导入：关注导入输出的“成功/失败/跳过”，并使用 `--show-status` 查看批次状态
+- 外键元数据：检查 `table_foreignkey_metadata` 是否有数据
+- 表查询配置：检查 `table_query_config` 是否生成了对应表配置
+- 问卷导入：检查 `survey_record`、`survey_import_log` 的条数与最近批次状态

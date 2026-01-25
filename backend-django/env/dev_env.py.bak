@@ -13,7 +13,7 @@ DATABASE_USER = os.environ.get('DEV_DB_USER', "")
 # 数据库密码
 DATABASE_PASSWORD = os.environ.get('DEV_DB_PASSWORD', "")
 # 数据库名
-DATABASE_NAME = "fu_admin_pro"
+DATABASE_NAME = "fuadmin2"
 
 # ================================================= #
 # ******** redis配置  *********** #

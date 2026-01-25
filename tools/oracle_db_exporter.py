@@ -285,7 +285,7 @@ class OracleDBExporter:
             import oracledb
         except ImportError:
             logger.error(
-                "python-oracledb 未安装。请运行: pip install oracledb\n"
+                "oracledb 未安装。请运行: pip install oracledb\n"
                 "或安装 tools 依赖: pip install -r tools/requirements.txt"
             )
             return False
@@ -297,20 +297,44 @@ class OracleDBExporter:
             logger.error("请在项目根目录 .env 文件中配置，或通过命令行参数传递")
             return False
         
-        try:
-            # 默认使用 thin 模式（纯 Python，无需 Instant Client）
-            dsn = self.conn_config.get_dsn()
-            logger.info(f"正在连接 Oracle: {dsn}")
-            
+        dsn = self.conn_config.get_dsn()
+        prefer_thick = os.getenv("ORACLE_THICK_MODE", "").strip().lower() in ("1", "true", "yes", "y", "on")
+        client_lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR")
+
+        def _connect_once() -> None:
             self.connection = oracledb.connect(
                 user=self.conn_config.user,
                 password=self.conn_config.password,
                 dsn=dsn,
             )
+
+        try:
+            logger.info(f"正在连接 Oracle: {dsn}")
+            if prefer_thick:
+                try:
+                    if client_lib_dir:
+                        oracledb.init_oracle_client(lib_dir=client_lib_dir)
+                    else:
+                        oracledb.init_oracle_client()
+                except Exception as init_err:
+                    logger.error(f"初始化 Oracle thick 模式失败: {init_err}")
+                    return False
+
+            _connect_once()
             logger.info("数据库连接成功")
             return True
-            
         except Exception as e:
+            msg = str(e)
+            if "DPY-3010" in msg and client_lib_dir and not prefer_thick:
+                try:
+                    oracledb.init_oracle_client(lib_dir=client_lib_dir)
+                    _connect_once()
+                    logger.info("数据库连接成功")
+                    return True
+                except Exception as thick_err:
+                    logger.error(f"数据库连接失败: {thick_err}")
+                    return False
+
             logger.error(f"数据库连接失败: {e}")
             return False
     
@@ -832,9 +856,8 @@ def main():
         exporter = OracleDBExporter(conn_config, inc_config)
         
         # 连接数据库
-        if not args.dry_run:
-            if not exporter.connect():
-                return 1
+        if not exporter.connect():
+            return 1
         
         try:
             # 处理表过滤参数

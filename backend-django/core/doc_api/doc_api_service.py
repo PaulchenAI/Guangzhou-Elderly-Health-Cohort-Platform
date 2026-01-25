@@ -32,6 +32,128 @@ DOC_REPORT_PATH = 'docs/his/report.json'
 CACHE_TTL_SECONDS = 300  # 缓存 5 分钟
 
 # =============================================================================
+# 接口访问控制配置
+# =============================================================================
+
+# 接口访问控制配置文件路径（相对于项目根目录）
+HIS_API_ACCESS_CONFIG_PATH = 'docs/his/access_control.json'
+
+
+def _load_default_config_from_file() -> Dict[str, bool]:
+    """
+    从配置文件加载默认的接口访问控制配置
+    
+    配置文件路径: docs/his/access_control.json
+    
+    Returns:
+        配置字典，如果文件不存在或解析失败则返回空字典
+    """
+    try:
+        # 获取项目根目录
+        base_dir = Path(settings.BASE_DIR)
+        project_root = base_dir.parent
+        config_path = project_root / HIS_API_ACCESS_CONFIG_PATH
+        
+        if not config_path.exists():
+            logger.warning(f"接口访问控制配置文件不存在: {config_path}")
+            return {}
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+        
+        # 支持两种格式：
+        # 1. 直接是 {"operation_id": true/false, ...} 格式
+        # 2. {"endpoints": {"operation_id": true/false, ...}} 格式
+        if isinstance(config_data, dict):
+            if 'endpoints' in config_data:
+                endpoints = config_data.get('endpoints', {})
+            else:
+                endpoints = config_data
+            
+            if isinstance(endpoints, dict):
+                logger.info(f"已从配置文件加载接口访问控制配置: {config_path}, {len(endpoints)} 个接口")
+                return endpoints
+        
+        logger.warning(f"接口访问控制配置文件格式错误: {config_path}")
+        return {}
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"接口访问控制配置文件 JSON 解析失败: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"读取接口访问控制配置文件失败: {e}")
+        return {}
+
+
+def _load_access_control_config() -> Dict[str, bool]:
+    """
+    加载接口访问控制配置
+    
+    优先级（从高到低）：
+    1. 环境变量 HIS_API_ACCESS_CONTROL（JSON 字符串格式）
+    2. 配置文件 docs/his/access_control.json
+    
+    Returns:
+        合并后的访问控制配置字典
+    """
+    # 从配置文件加载默认配置
+    file_config = _load_default_config_from_file()
+    
+    # 从环境变量读取配置
+    env_config_str = os.environ.get('HIS_API_ACCESS_CONTROL', '{}')
+    env_config: Dict[str, bool] = {}
+    
+    try:
+        env_config = json.loads(env_config_str)
+        if not isinstance(env_config, dict):
+            logger.warning(f"HIS_API_ACCESS_CONTROL 配置格式错误，忽略环境变量配置")
+            env_config = {}
+    except json.JSONDecodeError as e:
+        logger.warning(f"HIS_API_ACCESS_CONTROL JSON 解析失败: {e}，忽略环境变量配置")
+        env_config = {}
+    
+    # 合并配置文件和环境变量配置（环境变量配置优先）
+    return {**file_config, **env_config}
+
+
+# 全局访问控制配置（启动时加载一次）
+_access_control_config: Optional[Dict[str, bool]] = None
+
+
+def _get_access_control_config() -> Dict[str, bool]:
+    """获取访问控制配置（带缓存）"""
+    global _access_control_config
+    if _access_control_config is None:
+        _access_control_config = _load_access_control_config()
+    return _access_control_config
+
+
+def is_endpoint_accessible(operation_id: str) -> bool:
+    """
+    检查指定接口是否允许访问
+    
+    Args:
+        operation_id: 接口操作 ID
+        
+    Returns:
+        True 表示允许访问，False 表示不允许访问
+    """
+    config = _get_access_control_config()
+    return config.get(operation_id, False)
+
+
+def reload_access_control_config():
+    """
+    重新加载访问控制配置
+    
+    当环境变量更新后，可以调用此函数刷新配置
+    """
+    global _access_control_config
+    _access_control_config = _load_access_control_config()
+    logger.info("已重新加载接口访问控制配置")
+
+
+# =============================================================================
 # 缓存实现
 # =============================================================================
 
@@ -212,6 +334,8 @@ def get_endpoints_list(
     """
     获取接口列表
     
+    只返回允许访问的接口，根据访问控制配置进行过滤。
+    
     Args:
         page: 页码（从 1 开始）
         page_size: 每页数量
@@ -233,8 +357,14 @@ def get_endpoints_list(
             if method.upper() not in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']:
                 continue
             
+            ep_operation_id = operation.get('operationId', '')
+            
+            # 检查接口访问权限
+            if not is_endpoint_accessible(ep_operation_id):
+                continue
+            
             endpoint = {
-                'operation_id': operation.get('operationId', ''),
+                'operation_id': ep_operation_id,
                 'name': operation.get('summary', operation.get('operationId', '')),
                 'method': method.upper(),
                 'path': path,
@@ -255,19 +385,25 @@ def get_endpoints_list(
 # 接口详情查询
 # =============================================================================
 
-def get_endpoint_detail(operation_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def get_endpoint_detail(operation_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str], bool]:
     """
     获取接口详情
+    
+    只允许查询允许访问的接口，不允许访问的接口返回 403 错误标识。
     
     Args:
         operation_id: 操作 ID
         
     Returns:
-        (detail, error): 接口详情和错误信息
+        (detail, error, is_forbidden): 接口详情、错误信息和是否为权限拒绝
     """
+    # 先检查接口访问权限
+    if not is_endpoint_accessible(operation_id):
+        return None, f"接口 {operation_id} 不允许访问", True
+    
     openapi_data, error = get_openapi_data()
     if error:
-        return None, error
+        return None, error, False
     
     # 查找匹配的接口
     paths = openapi_data.get('paths', {})
@@ -316,9 +452,9 @@ def get_endpoint_detail(operation_id: str) -> Tuple[Optional[Dict[str, Any]], Op
                             detail['location'] = ep.get('location')
                             break
                 
-                return detail, None
+                return detail, None, False
     
-    return None, f"接口不存在: {operation_id}"
+    return None, f"接口不存在: {operation_id}", False
 
 
 # =============================================================================
@@ -336,6 +472,8 @@ def search_endpoints(
 ) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:
     """
     搜索接口
+    
+    只在允许访问的接口中进行搜索，根据访问控制配置进行过滤。
     
     Args:
         name: 接口名称（模糊匹配）
@@ -365,6 +503,10 @@ def search_endpoints(
             ep_name = operation.get('summary', operation.get('operationId', ''))
             ep_operation_id = operation.get('operationId', '')
             ep_summary = operation.get('summary', '')
+            
+            # 检查接口访问权限
+            if not is_endpoint_accessible(ep_operation_id):
+                continue
             
             # 应用过滤条件
             if name and name.lower() not in ep_name.lower():

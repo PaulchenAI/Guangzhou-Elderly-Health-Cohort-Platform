@@ -719,25 +719,28 @@ class SQLSyntaxFixer:
         # 格式: INSERT INTO table (col1, col2, reserved_word, col3)
         # 匹配逗号分隔的标识符
         if 'INSERT' in line.upper():
-            # 匹配括号内的保留字列名：, reserved_word, 或 (reserved_word,
-            insert_col_pattern = r'([,\(]\s*)(' + reserved_words_pattern + r')(\s*[,\)])'
-            
-            def replace_insert_column(match):
-                nonlocal fix_count
-                prefix = match.group(1)
-                word = match.group(2)
-                suffix = match.group(3)
-                # 检查是否在字符串内
-                line_prefix = line[:match.start()]
-                if line_prefix.count("'") % 2 == 1:  # 在字符串内
-                    return match.group(0)
-                # 检查是否已经有反引号
-                if '`' in prefix or '`' in suffix:
-                    return match.group(0)
-                fix_count += 1
-                return f'{prefix}`{word}`{suffix}'
-            
-            line = re.sub(insert_col_pattern, replace_insert_column, line, flags=re.IGNORECASE)
+            m = re.search(
+                r'\bINSERT\s+INTO\s+.+?\((?P<cols>.*?)\)\s*VALUES\b',
+                line,
+                flags=re.IGNORECASE
+            )
+            if m:
+                cols_start, cols_end = m.start('cols'), m.end('cols')
+                cols_part = line[cols_start:cols_end]
+
+                insert_col_pattern = r'(^|,\s*)(' + reserved_words_pattern + r')(\s*(?=,|$))'
+
+                def replace_insert_column(match):
+                    nonlocal fix_count
+                    prefix = match.group(1)
+                    word = match.group(2)
+                    suffix = match.group(3)
+                    fix_count += 1
+                    return f'{prefix}`{word}`{suffix}'
+
+                fixed_cols = re.sub(insert_col_pattern, replace_insert_column, cols_part, flags=re.IGNORECASE)
+                if fixed_cols != cols_part:
+                    line = line[:cols_start] + fixed_cols + line[cols_end:]
         
         return line, fix_count
     
