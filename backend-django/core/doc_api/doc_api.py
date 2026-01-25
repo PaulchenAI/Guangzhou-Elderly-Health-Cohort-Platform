@@ -47,17 +47,18 @@ def list_endpoints(
     """
     获取文档接口列表（分页）
     
-    从 OpenAPI JSON 文档中读取所有接口信息并返回分页列表。
+    从 OpenAPI JSON 文档中读取接口信息并返回分页列表。
+    只返回允许访问的接口，根据访问控制配置进行过滤。
     
     查询参数:
     - page: 页码（默认 1）
     - page_size: 每页数量（默认 20，最大 100）
     
     返回:
-    - total: 总记录数
+    - total: 允许访问的接口总数
     - page: 当前页码
     - page_size: 每页数量
-    - items: 接口列表
+    - items: 允许访问的接口列表
     
     AI 调用建议: 用于获取所有可用的文档接口，支持分页浏览。
     """
@@ -89,6 +90,7 @@ def get_endpoint(request, operation_id: str):
     获取文档接口详情
     
     根据 operation_id 获取指定接口的完整信息，包括请求参数、响应定义和示例数据。
+    只允许查询允许访问的接口，不允许访问的接口返回 403 错误。
     
     路径参数:
     - operation_id: 接口操作 ID（如 PER_BASE_0001）
@@ -100,13 +102,21 @@ def get_endpoint(request, operation_id: str):
     - 示例数据（request_example、response_example）
     - 额外信息（request_fields、response_fields、location）
     
+    错误响应:
+    - 403: 接口不允许访问
+    - 404: 接口不存在
+    
     AI 调用建议: 用于获取特定接口的详细定义，包括请求和响应格式。
     """
-    detail, error = get_endpoint_detail(operation_id)
+    detail, error, is_forbidden = get_endpoint_detail(operation_id)
     
     if error:
-        logger.warning(f"获取接口详情失败: {error}")
-        raise HttpError(404, error)
+        if is_forbidden:
+            logger.warning(f"接口访问被拒绝: {error}")
+            raise HttpError(403, error)
+        else:
+            logger.warning(f"获取接口详情失败: {error}")
+            raise HttpError(404, error)
     
     return detail
 
@@ -125,6 +135,7 @@ def search_endpoint(request, search_in: DocEndpointSearchIn):
     搜索文档接口
     
     支持多条件组合搜索文档接口，所有条件为 AND 关系。
+    只在允许访问的接口中进行搜索，根据访问控制配置进行过滤。
     
     请求体参数:
     - name: 接口名称（模糊匹配）
@@ -136,10 +147,10 @@ def search_endpoint(request, search_in: DocEndpointSearchIn):
     - page_size: 每页数量（默认 20，最大 100）
     
     返回:
-    - total: 匹配的总记录数
+    - total: 匹配且允许访问的接口总数
     - page: 当前页码
     - page_size: 每页数量
-    - items: 匹配的接口列表
+    - items: 匹配且允许访问的接口列表
     
     AI 调用建议: 用于按条件搜索接口，支持按名称、路径、方法等条件过滤。
     """
