@@ -6,6 +6,12 @@ from pathlib import Path
 import pytest
 import requests
 
+from core.doc_api.doc_api_service import (
+    get_endpoint_detail,
+    get_endpoints_list,
+    is_endpoint_accessible,
+    reload_access_control_config,
+)
 
 def test_doc_api_summary(client):
     resp = client.get("/api/core/doc-api/summary")
@@ -46,7 +52,11 @@ def test_doc_api_endpoint_detail(client):
 
 
 def test_doc_api_search_by_operation_id(client):
-    payload = {"keyword": "PER_BASE_0001", "page": 1, "page_size": 10}
+    spec = _load_openapi_spec()
+    operation_id = _pick_first_allowed_operation_id(spec)
+    if not operation_id:
+        pytest.skip("access_control.json 未配置可测试的 operation_id")
+    payload = {"keyword": operation_id, "page": 1, "page_size": 10}
     resp = client.post(
         "/api/core/doc-api/endpoints/search",
         data=json.dumps(payload),
@@ -55,13 +65,61 @@ def test_doc_api_search_by_operation_id(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] >= 1
-    assert any(item["operation_id"] == "PER_BASE_0001" for item in data["items"])
+    assert any(item["operation_id"] == operation_id for item in data["items"])
 
 
 def _load_openapi_spec() -> dict:
     repo_root = Path(__file__).resolve().parents[4]
     spec_path = repo_root / "docs" / "his" / "openapi.json"
     return json.loads(spec_path.read_text(encoding="utf-8"))
+
+
+def _load_access_control_config() -> dict:
+    repo_root = Path(__file__).resolve().parents[4]
+    config_path = repo_root / "docs" / "his" / "access_control.json"
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+    if isinstance(data, dict) and "endpoints" in data:
+        data = data.get("endpoints", {})
+    return data if isinstance(data, dict) else {}
+
+
+def _allowed_operation_ids() -> set[str]:
+    config = _load_access_control_config()
+    return {k for k, v in config.items() if v is True}
+
+
+def _pick_operation_id_from_access_control(spec: dict) -> str | None:
+    allowed = _allowed_operation_ids()
+    if not allowed:
+        return None
+    for _, _, op in _iter_operations(spec):
+        operation_id = str(op.get("operationId") or "")
+        if operation_id in allowed:
+            return operation_id
+    return None
+
+
+def _build_access_control_override(allowed_ids: set[str], allow_one: str | None) -> dict:
+    override = {k: False for k in allowed_ids}
+    if allow_one:
+        override[allow_one] = True
+    return override
+
+
+def _set_access_control_env(mapping: dict) -> None:
+    os.environ["HIS_API_ACCESS_CONTROL"] = json.dumps(mapping, ensure_ascii=False)
+    reload_access_control_config()
+
+
+def _restore_access_control_env(original: str | None) -> None:
+    if original is None:
+        os.environ.pop("HIS_API_ACCESS_CONTROL", None)
+    else:
+        os.environ["HIS_API_ACCESS_CONTROL"] = original
+    reload_access_control_config()
 
 
 def _load_env_file(env_path: Path) -> dict:
@@ -94,6 +152,7 @@ def _load_env_file(env_path: Path) -> dict:
 def _pick_random_operation(spec: dict, seed: int) -> tuple[str, str, dict]:
     get_candidates: list[tuple[str, str, dict]] = []
     other_candidates: list[tuple[str, str, dict]] = []
+    allowed = _allowed_operation_ids()
     paths = spec.get("paths", {})
     for p, item in paths.items():
         if not isinstance(item, dict):
@@ -103,6 +162,9 @@ def _pick_random_operation(spec: dict, seed: int) -> tuple[str, str, dict]:
                 continue
             method = str(m).upper()
             if method not in {"GET", "POST", "PUT", "DELETE", "PATCH"}:
+                continue
+            operation_id = str(op.get("operationId") or "")
+            if allowed and operation_id not in allowed:
                 continue
             if method == "GET":
                 get_candidates.append((p, method, op))
@@ -176,6 +238,106 @@ def _build_query_params(operation: dict, body: object | None) -> dict | None:
     return params or None
 
 
+def _find_operation_by_id(spec: dict, operation_id: str) -> tuple[str, str, dict] | None:
+    for path, method, op in _iter_operations(spec):
+        if str(op.get("operationId") or "") == operation_id:
+            return path, method, op
+    return None
+
+
+def _load_json_env(name: str) -> object | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def _iter_allowed_operations(spec: dict) -> list[tuple[str, str, dict]]:
+    allowed = _allowed_operation_ids()
+    if not allowed:
+        return []
+    operations = []
+    for path, method, op in _iter_operations(spec):
+        operation_id = str(op.get("operationId") or "")
+        if operation_id in allowed:
+            operations.append((path, method, op))
+    return operations
+
+
+def _pick_any_operation_id(spec: dict) -> str:
+    for _, _, op in _iter_operations(spec):
+        operation_id = str(op.get("operationId") or "")
+        if operation_id:
+            return operation_id
+    raise AssertionError("openapi.json 未找到任何 operationId")
+
+
+def _pick_first_allowed_operation_id(spec: dict) -> str | None:
+    allowed = _allowed_operation_ids()
+    if not allowed:
+        return None
+    for _, _, op in _iter_operations(spec):
+        operation_id = str(op.get("operationId") or "")
+        if operation_id in allowed:
+            return operation_id
+    return None
+
+
+def test_access_control_is_endpoint_accessible_env_override():
+    spec = _load_openapi_spec()
+    operation_id = _pick_any_operation_id(spec)
+    original = os.environ.get("HIS_API_ACCESS_CONTROL")
+    try:
+        _set_access_control_env({operation_id: True})
+        assert is_endpoint_accessible(operation_id) is True
+        assert is_endpoint_accessible("NOT_EXISTING_0000") is False
+    finally:
+        _restore_access_control_env(original)
+
+
+def test_access_control_endpoints_list_filters_allowed_only():
+    spec = _load_openapi_spec()
+    operation_id = _pick_operation_id_from_access_control(spec)
+    if not operation_id:
+        pytest.skip("openapi.json 與 access_control.json 無交集，跳過測試")
+    override = _build_access_control_override(_allowed_operation_ids(), operation_id)
+    original = os.environ.get("HIS_API_ACCESS_CONTROL")
+    try:
+        _set_access_control_env(override)
+        items, total, error = get_endpoints_list(page=1, page_size=5000)
+        assert error is None
+        assert total >= 1
+        assert all(item["operation_id"] == operation_id for item in items)
+        allowed_count = sum(
+            1
+            for _, _, op in _iter_operations(spec)
+            if str(op.get("operationId") or "") == operation_id
+        )
+        assert total == allowed_count
+    finally:
+        _restore_access_control_env(original)
+
+
+def test_access_control_endpoint_detail_forbidden_when_not_allowed():
+    spec = _load_openapi_spec()
+    operation_id = _pick_operation_id_from_access_control(spec)
+    if not operation_id:
+        pytest.skip("openapi.json 與 access_control.json 無交集，跳過測試")
+    override = _build_access_control_override(_allowed_operation_ids(), None)
+    original = os.environ.get("HIS_API_ACCESS_CONTROL")
+    try:
+        _set_access_control_env(override)
+        detail, error, is_forbidden = get_endpoint_detail(operation_id)
+        assert detail is None
+        assert is_forbidden is True
+        assert error
+    finally:
+        _restore_access_control_env(original)
+
+
 def _build_auth_headers_candidates(
     auth_header: str,
     auth_value: str | None,
@@ -207,6 +369,10 @@ def _build_auth_headers_candidates(
             seen.add(key)
             unique.append(hdr)
     return unique
+
+
+def _build_json_headers() -> dict:
+    return {"Content-Type": "application/json"}
 
 
 def _summarize_response(resp: requests.Response) -> str:
@@ -274,6 +440,7 @@ def _env_truthy(name: str) -> bool:
 
 def _iter_operations(spec: dict) -> list[tuple[str, str, dict]]:
     out: list[tuple[str, str, dict]] = []
+    allowed = _allowed_operation_ids()
     paths = spec.get("paths", {})
     if not isinstance(paths, dict):
         return out
@@ -285,6 +452,9 @@ def _iter_operations(spec: dict) -> list[tuple[str, str, dict]]:
                 continue
             method = str(m).upper()
             if method not in {"GET", "POST", "PUT", "DELETE", "PATCH"}:
+                continue
+            operation_id = str(op.get("operationId") or "")
+            if allowed and operation_id not in allowed:
                 continue
             out.append((str(p), method, op))
     return out
@@ -382,23 +552,18 @@ def test_his_token_preflight_acceptance():
         timeout=timeout,
     )
 
-    headers_candidates = _build_auth_headers_candidates(
-        auth_header=os.environ.get("HIS_AUTH_HEADER", "Authorization"),
-        auth_value=os.environ.get("HIS_AUTH_VALUE"),
-        doc_token=token,
-        his_token=os.environ.get("HIS_TOKEN"),
-    )
-    if not headers_candidates:
-        pytest.skip("未设置可用的鉴权参数，跳过 token 预检测试")
+    query_ak = os.environ.get("HIS_QUERY_AK") or os.environ.get("HIS_AK") or token
+    params = {"ak": query_ak} if query_ak else None
+    headers_candidates = [_build_json_headers()]
 
     responses: list[tuple[dict, requests.Response]] = []
     for headers in headers_candidates:
-        resp = _call_his_operation(
-            base_url=his_base_url,
-            path=path,
+        resp = requests.request(
             method=method,
-            operation=operation,
+            url=his_base_url.rstrip("/") + path,
             headers=headers,
+            params=params,
+            json=_build_request_json(operation) if method != "GET" else None,
             timeout=timeout,
         )
         responses.append((headers, resp))
@@ -434,19 +599,11 @@ def test_his_openapi_random_endpoint_returns_success():
     if not his_base_url:
         pytest.skip("未设置 HIS_BASE_URL/DOC_API_URL，跳过真实 HIS 联调测试")
 
-    auth_header = os.environ.get("HIS_AUTH_HEADER", "Authorization")
-    auth_value = os.environ.get("HIS_AUTH_VALUE")
     doc_token = os.environ.get("DOC_API_TOKEN") or dotenv.get("DOC_API_TOKEN")
-    his_token = os.environ.get("HIS_TOKEN")
 
-    headers_candidates = _build_auth_headers_candidates(
-        auth_header=auth_header,
-        auth_value=auth_value,
-        doc_token=doc_token,
-        his_token=his_token,
-    )
+    headers_candidates = [_build_json_headers()]
     if not headers_candidates:
-        pytest.skip("未设置 HIS_AUTH_VALUE/HIS_TOKEN/DOC_API_TOKEN，跳过真实 HIS 联调测试")
+        pytest.skip("未设置 DOC_API_TOKEN，跳过真实 HIS 联调测试")
 
     seed = int(os.environ.get("HIS_OPENAPI_RANDOM_SEED", "1"))
     timeout = float(os.environ.get("HIS_TIMEOUT_SECONDS", "10"))
@@ -493,6 +650,8 @@ def test_his_openapi_random_endpoint_returns_success():
     else:
         body = _build_request_json(operation)
         params = _build_query_params(operation, body)
+    if doc_token:
+        params = {**(params or {}), "ak": doc_token}
 
     last_resp = None
     responses: list[tuple[dict, requests.Response]] = []
@@ -543,3 +702,146 @@ def test_his_openapi_random_endpoint_returns_success():
 
     if isinstance(payload, dict) and "success" in payload:
         assert payload["success"] is True
+
+
+def test_his_cli_nis_0021_post_not_405():
+    if not _env_truthy("HIS_VALIDATE_TOKEN"):
+        pytest.skip("未设置 HIS_VALIDATE_TOKEN=1，跳过 CLI_NIS_0021 方法校验")
+
+    repo_root = Path(__file__).resolve().parents[4]
+    dotenv = _load_env_file(repo_root / "backend-django" / ".env")
+
+    his_base_url = (
+        os.environ.get("HIS_BASE_URL")
+        or os.environ.get("DOC_API_URL")
+        or dotenv.get("DOC_API_URL")
+    )
+    if not his_base_url:
+        pytest.skip("未设置 HIS_BASE_URL/DOC_API_URL，跳过 CLI_NIS_0021 方法校验")
+
+    doc_token = os.environ.get("DOC_API_TOKEN") or dotenv.get("DOC_API_TOKEN")
+
+    headers_candidates = [_build_json_headers()]
+    if not headers_candidates:
+        pytest.skip("未设置 DOC_API_TOKEN，跳过 CLI_NIS_0021 方法校验")
+
+    spec = _load_openapi_spec()
+    operation = _find_operation_by_id(spec, "CLI_NIS_0021")
+    if not operation:
+        pytest.skip("openapi.json 未找到 CLI_NIS_0021")
+
+    path, method, _ = operation
+    if method != "POST":
+        raise AssertionError(f"openapi.json 期望 POST，但实际为 {method}")
+
+    body = _load_json_env("HIS_CLI_NIS_0021_BODY")
+    if body is None:
+        body = {
+            "payload": {
+                "startTime": "2024-01-01 00:00:00",
+                "endTime": "2025-01-02 00:00:00",
+                "_pageType": "P",
+                "_pageNo": 0,
+                "_pageSize": 10,
+            }
+        }
+
+    query_ak = os.environ.get("HIS_QUERY_AK") or os.environ.get("HIS_AK") or doc_token
+
+    params = {"ak": query_ak} if query_ak else None
+    timeout = float(os.environ.get("HIS_TIMEOUT_SECONDS", "10"))
+
+    last_resp = None
+    for headers in headers_candidates:
+        resp = requests.post(
+            his_base_url.rstrip("/") + path,
+            headers=headers,
+            params=params,
+            json=body,
+            timeout=timeout,
+        )
+        last_resp = resp
+        if resp.status_code != 405:
+            break
+
+    assert last_resp is not None
+    if last_resp.status_code == 405:
+        allow = last_resp.headers.get("Allow")
+        detail = _summarize_response(last_resp)
+        raise AssertionError(
+            f"CLI_NIS_0021 返回 405，Allow={allow} "
+            f"url={his_base_url.rstrip('/') + path} resp={detail}"
+        )
+
+
+def test_his_access_control_all_endpoints_with_examples():
+    if not _env_truthy("HIS_VALIDATE_TOKEN"):
+        pytest.skip("未设置 HIS_VALIDATE_TOKEN=1，跳过 access_control 全量测试")
+
+    repo_root = Path(__file__).resolve().parents[4]
+    dotenv = _load_env_file(repo_root / "backend-django" / ".env")
+
+    his_base_url = (
+        os.environ.get("HIS_BASE_URL")
+        or os.environ.get("DOC_API_URL")
+        or dotenv.get("DOC_API_URL")
+    )
+    if not his_base_url:
+        pytest.skip("未设置 HIS_BASE_URL/DOC_API_URL，跳过 access_control 全量测试")
+
+    doc_token = os.environ.get("DOC_API_TOKEN") or dotenv.get("DOC_API_TOKEN")
+
+    headers_candidates = [_build_json_headers()]
+    if not headers_candidates:
+        pytest.skip("未设置 DOC_API_TOKEN，跳过 access_control 全量测试")
+
+    query_ak = os.environ.get("HIS_QUERY_AK") or os.environ.get("HIS_AK") or doc_token
+    params = {"ak": query_ak} if query_ak else None
+
+    timeout = float(os.environ.get("HIS_TIMEOUT_SECONDS", "10"))
+    per_endpoint_timeout = {"CLI_NIS_0002": 60.0, "FIN_INP_0009": 60.0}
+    spec = _load_openapi_spec()
+    operations = _iter_allowed_operations(spec)
+    if not operations:
+        pytest.skip("access_control.json 未配置可测试的 operation_id")
+
+    failures: list[str] = []
+    for path, method, operation in operations:
+        operation_id = str(operation.get("operationId") or "")
+        url = his_base_url.rstrip("/") + path
+
+        body = None
+        req_params = params
+        if method != "GET":
+            body = _build_request_json(operation)
+            extra_params = _build_query_params(operation, body)
+            if extra_params:
+                req_params = {**(req_params or {}), **extra_params}
+
+        last_resp = None
+        endpoint_timeout = per_endpoint_timeout.get(operation_id, timeout)
+        for headers in headers_candidates:
+            resp = requests.request(
+                method=method,
+                url=url,
+                headers=headers,
+                params=req_params,
+                json=body,
+                timeout=endpoint_timeout,
+            )
+            last_resp = resp
+            if resp.status_code == 200:
+                break
+
+        if last_resp is None or last_resp.status_code != 200:
+            allow = last_resp.headers.get("Allow") if last_resp else None
+            detail = _summarize_response(last_resp) if last_resp else "no-response"
+            failures.append(
+                f"{operation_id} {method} {path} status="
+                f"{getattr(last_resp, 'status_code', 'n/a')} Allow={allow} resp={detail}"
+            )
+
+    if failures:
+        joined = "\n".join(failures[:20])
+        more = f"\n... 还有 {len(failures) - 20} 个失败" if len(failures) > 20 else ""
+        raise AssertionError(f"access_control 全量测试失败:\n{joined}{more}")
