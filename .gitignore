@@ -76,3 +76,4 @@ web/.node/*
 docs/oracle_export/*
 docs/his/*
 backend-django/*.sqlite3
+docs/Library/*

@@ -1,10 +1,8 @@
-# zq-platform (ZhiQing Development Platform)
-
-English | [简体中文](./README.zh-CN.md)
+# zq-platform 智擎开发平台
 
 <div align="center">
 
-A modern enterprise-level admin management system built with Django + Vue3 + Element Plus
+基于 **Django + Vue3 + Element Plus + LLM/RAG** 的现代化企业级后台管理与智能开发平台
 
 [![Django](https://img.shields.io/badge/Django-5.2.7-green.svg)](https://www.djangoproject.com/)
 [![Vue](https://img.shields.io/badge/Vue-3.x-brightgreen.svg)](https://vuejs.org/)
@@ -13,514 +11,359 @@ A modern enterprise-level admin management system built with Django + Vue3 + Ele
 
 </div>
 
-## Demo Link
-[https://django-ninja.zq-platform.cn](https://django-ninja.zq-platform.cn/)
+---
 
-## 📖 Introduction
+## � 项目简介
 
-zq-platform is a comprehensive enterprise-level admin management system solution with a separated frontend and backend architecture. The backend uses Django 5.2 + Django Ninja to build high-performance RESTful APIs, while the frontend is based on Vue 3 + Vben Admin + Element Plus to create a modern management interface.
+**zq-platform（智擎开发平台）** 是一套前后端分离的企业级后台管理与智能开发解决方案：
 
-### ✨ Core Features
+- 后端基于 **Django 5.2 + Django Ninja** 提供高性能 RESTful API 与任务调度能力  
+- 前端基于 **Vue3 + Vite + Element Plus + Vben Admin** 提供现代化中后台界面  
+- 内置 **权限系统、任务调度、日志审计、文件管理、数据库/Redis 监控** 等通用能力  
+- 扩展支持 **Oracle→MySQL SQL 导入、动态表查询、问卷集成** 等业务场景  
+- 集成 **LLM + 向量数据库（Chroma）**，支持 RAG 检索增强和智能 Agent 能力（在 docs 与 backend-django/.env 中已预置配置）
 
-- 🎯 **Complete RBAC Permission System** - Multi-dimensional permission control for users, roles, permissions, departments, and positions
-- 🔐 **JWT Authentication** - Secure token authentication with Access Token and Refresh Token support
-- 📊 **System Monitoring** - Server monitoring, Redis monitoring, database monitoring for real-time system status
-- 📁 **File Management** - Comprehensive file upload, download, and preview functionality
-- 📝 **Operation Logs** - Detailed login logs and operation auditing
-- 🗂️ **Data Dictionary** - Flexible dictionary management with multi-level classification support
-- ⏰ **Task Scheduling** - APScheduler-based scheduled task management
-- 🔌 **WebSocket Support** - Real-time communication capabilities
-- 🌐 **Multi-Database Support** - MySQL, PostgreSQL, SQL Server, SQLite
-- 🎨 **Modern UI** - Responsive design with dark mode support
-- 📦 **Monorepo Architecture** - Frontend engineering solution based on pnpm workspace
+目标是让你可以在此基础上快速搭建自有后台管理系统，并按需接入 AI / RAG 能力。
 
-### 🆕 Extended Features
+线上示例：  
+`https://django-ninja.zq-platform.cn/`
 
-- 📋 **Database Table Query** - Configuration-driven dynamic table querying without code changes
-- 🔄 **SQL Import** - Oracle to MySQL SQL conversion and batch import with status tracking
-- 📊 **Survey Integration** - External survey API integration for questionnaire data management with flexible export options
+---
 
-## 🏗️ Tech Stack
+## 🧠 技术栈
 
-### Backend Technologies
+### 前端（Frontend）
 
-- **Core Framework**: Django 5.2.7
-- **API Framework**: Django Ninja 1.4.5 (High-performance API framework)
-- **Authentication**: PyJWT 2.8.0
-- **Async Tasks**: Celery 5.4.0 + Django Celery Beat
-- **Task Scheduling**: APScheduler 3.10.4
-- **Caching**: Redis + django-redis 6.0.0
-- **WebSocket**: Django Channels 4.2
-- **Database Drivers**: psycopg2-binary, pymysql, pyodbc
-- **Server**: Uvicorn 0.38.0 / Gunicorn 23.0.0
-- **Others**: openpyxl, geoip2, psutil, cryptography
+- 框架：Vue 3.x
+- 构建工具：Vite 5.x
+- UI 组件库：Element Plus
+- 状态管理：Pinia
+- 路由：Vue Router
+- HTTP 客户端：Axios
+- 样式：Tailwind CSS
+- 工程化：pnpm Workspace + Turbo Monorepo
 
-### Frontend Technologies
+### 后端（Backend）
 
-- **Core Framework**: Vue 3.x
-- **Build Tool**: Vite 5.x
-- **UI Component Library**: Element Plus
-- **State Management**: Pinia
-- **Router**: Vue Router
-- **HTTP Client**: Axios
-- **Styling**: Tailwind CSS
-- **Utility Libraries**: VueUse, dayjs, lodash-es
-- **Code Standards**: ESLint, Prettier, Stylelint
-- **Package Manager**: pnpm 10.14.0
-- **Monorepo**: Turbo
+- Web 框架：Django 5.2.7
+- API 框架：Django Ninja 1.4.5
+- 身份认证：PyJWT（Access Token / Refresh Token）
+- 任务队列：Celery 5.4.0 + django-celery-beat
+- 定时任务：APScheduler 3.10.4
+- 缓存与会话：Redis + django-redis
+- WebSocket：Django Channels 4.2
+- 数据库：MySQL / PostgreSQL / SQL Server / SQLite
+- 驱动：psycopg2-binary、pymysql、pyodbc
+- 部署：Gunicorn / Uvicorn + Nginx
 
-## 📁 Project Structure
+### LLM 与向量检索（Intelligent / RAG）
 
+- LLM：兼容 OpenAI API 的模型（默认配置为通义千问 Qwen，经由 DashScope 兼容模式）  
+- 向量库：Chroma DB（`VECTOR_DB_TYPE=chromadb`）  
+- 能力：  
+  - 支持将文档切片后写入向量库  
+  - 通过 RAG 检索增强调用 LLM  
+  - 在后端提供统一的 API 封装（配置见 `backend-django/.env` 与 `docs/backend-api-development-guide.md`）
+
+### 部署（Deployment）
+
+- 推荐：Docker + Nginx + Gunicorn/Uvicorn  
+- 也支持传统物理机 / 虚拟机部署（参见 README 与 openspec 文档）
+
+---
+
+## 🏗 系统架构
+
+整体架构包括四个层面：
+
+- **前端应用层**：Vue3 + Vite + Element Plus 构建的多应用 Monorepo（apps/web-ele 等）  
+- **后端服务层**：Django + Django Ninja 提供 API、鉴权、任务调度、WebSocket 等能力  
+- **基础设施层**：MySQL/PG/SQL Server、Redis、Chroma、对象存储/文件系统  
+- **智能能力层**：LLM（Qwen/OpenAI API 等）+ RAG 检索增强，封装为统一服务接口
+
+架构示意图（可根据实际情况补充图片文件）：  
+![architecture](./docs/architecture.png)
+
+---
+
+## ✨ 核心亮点
+
+- 🔐 **完整 RBAC 权限系统**  
+  用户 / 角色 / 权限 / 部门 / 岗位多维度控制，支持菜单、按钮、接口粒度授权。
+
+- 🧱 **通用后台能力开箱即用**  
+  登录日志、操作日志、字典管理、文件管理、任务调度、数据监控等常用模块均已内置。
+
+- 🗃 **Oracle→MySQL SQL 导入与动态表查询**  
+  - 提供 SQL 转换与批量导入能力，支持断点续导、失败重试、自动修复保留字等  
+  - 通过 JSON 配置驱动的动态表查询，支持分页、过滤、排序、导出、查询日志审计。
+
+- 🧠 **LLM + RAG 能力集成**  
+  - 支持将业务文档嵌入到 Chroma 向量库中  
+  - 通过 RAG 检索增强调用 LLM，实现「带业务知识」的对话与辅助决策  
+  - 配置式切换 LLM 提供商（OpenAI 兼容协议）。
+
+- 🌐 **多数据库支持与监控**  
+  MySQL / PostgreSQL / SQL Server / SQLite 统一接入，提供连接监控、库表管理、数据查询 API。
+
+- 📦 **Monorepo 工程化**  
+  前端采用 pnpm Workspace + Turbo，便于大型团队协作与代码复用。
+
+---
+
+## 🎥 Demo
+
+- 在线演示地址（后台管理）：  
+  `https://django-ninja.zq-platform.cn/`
+
+- API 文档：  
+  - Swagger UI：`http://localhost:8000/api/docs`  
+  - ReDoc：`http://localhost:8000/api/redoc`
+
+你也可以结合自己环境录制 GIF 或视频，放在本节中：
+
+```markdown
+![demo](./docs/demo.gif)
 ```
+
+---
+
+## 📂 项目结构
+
+项目采用前后端分离 + Monorepo 结构：
+
+```bash
 zq-platform/
-├── backend-django/          # Django Backend
-│   ├── application/         # Project Configuration
-│   ├── core/               # Core Business Modules
-│   │   ├── auth/           # Authentication & Authorization
-│   │   ├── user/           # User Management
-│   │   ├── role/           # Role Management
-│   │   ├── permission/     # Permission Management
-│   │   ├── dept/           # Department Management
-│   │   ├── post/           # Position Management
-│   │   ├── menu/           # Menu Management
-│   │   ├── dict/           # Dictionary Management
-│   │   ├── login_log/      # Login Logs
-│   │   ├── file_manager/   # File Management
-│   │   ├── server_monitor/ # Server Monitoring
-│   │   ├── redis_monitor/  # Redis Monitoring
-│   │   ├── redis_manager/  # Redis Management
-│   │   ├── database_monitor/ # Database Monitoring
-│   │   ├── database_manager/ # Database Management
-│   │   ├── table_query/    # Dynamic Table Query
-│   │   └── survey/         # Survey Data Management
-│   ├── scheduler/          # Task Scheduling Module
-│   ├── common/             # Common Modules
-│   │   ├── fu_crud.py      # Generic CRUD Operations
-│   │   ├── fu_auth.py      # Auth & Authorization
-│   │   ├── fu_cache.py     # Cache Management
-│   │   ├── fu_pagination.py # Pagination Handler
-│   │   └── fu_schema.py    # Common Data Structures
-│   ├── env/                # Environment Configuration
-│   ├── requirements.txt    # Python Dependencies
-│   └── manage.py          # Django Management Script
+├── backend-django/          # 后端（Django + Django Ninja）
+│   ├── application/         # 项目配置（settings/urls/asgi 等）
+│   ├── core/                # 核心业务模块
+│   │   ├── auth/            # 认证与授权
+│   │   ├── user/            # 用户管理
+│   │   ├── role/            # 角色管理
+│   │   ├── permission/      # 权限管理
+│   │   ├── dept/            # 部门管理
+│   │   ├── post/            # 岗位管理
+│   │   ├── menu/            # 菜单与路由
+│   │   ├── dict/            # 数据字典
+│   │   ├── login_log/       # 登录日志
+│   │   ├── file_manager/    # 文件管理
+│   │   ├── server_monitor/  # 服务器监控
+│   │   ├── redis_monitor/   # Redis 监控
+│   │   ├── redis_manager/   # Redis 管理
+│   │   ├── database_monitor/# 数据库监控
+│   │   ├── database_manager/# 数据库管理
+│   │   ├── table_query/     # 动态表查询
+│   │   └── survey/          # 问卷数据管理
+│   ├── scheduler/           # APScheduler 任务调度
+│   ├── common/              # 通用工具（CRUD、缓存、分页、Schema 等）
+│   ├── env/                 # 环境配置（dev/prd 等）
+│   ├── requirements.txt     # Python 依赖
+│   └── manage.py            # Django 管理脚本
 │
-├── web/                    # Vue Frontend (Monorepo)
+├── web/                     # 前端（Vue3 Monorepo）
 │   ├── apps/
-│   │   └── web-ele/        # Element Plus Main Application
-│   │       ├── src/
-│   │       │   ├── api/    # API Interfaces
-│   │       │   ├── views/  # Page Components
-│   │       │   ├── router/ # Router Configuration
-│   │       │   └── store/  # State Management
-│   │       └── package.json
-│   ├── packages/           # Shared Packages
-│   │   ├── @core/          # Core Packages
-│   │   ├── effects/        # Effects Packages
-│   │   ├── hooks/          # Hooks
-│   │   ├── icons/          # Icons
-│   │   ├── locales/        # Internationalization
-│   │   ├── stores/         # State Management
-│   │   └── utils/          # Utility Functions
-│   ├── internal/           # Internal Tools
-│   └── package.json        # Root Configuration
+│   │   └── web-ele/         # 主应用（Element Plus 后台）
+│   ├── packages/            # 共享包（hooks/icons/locales/utils 等）
+│   ├── internal/            # 内部工具
+│   └── package.json         # 前端根配置
 │
-├── openspec/               # OpenSpec Specification-Driven Development
-│   ├── project.md          # Project Conventions
-│   ├── AGENTS.md           # AI Assistant Instructions
-│   ├── specs/              # Feature Specifications
-│   │   ├── database-table-query/
-│   │   └── sql-import/
-│   └── changes/            # Change Proposals
-│       └── archive/        # Completed changes
+├── openspec/                # OpenSpec 规范驱动开发
+│   ├── project.md
+│   ├── AGENTS.md
+│   ├── specs/               # 规范（如 database-table-query、sql-import）
+│   └── changes/             # 变更提案与归档
 │
-└── docs/                   # Documentation
-    ├── frontend-development-guide.md
-    └── backend-api-development-guide.md
+└── docs/                    # 文档（前端开发指南、后端 API 指南等）
 ```
 
-## 🚀 Quick Start
+---
 
-### Requirements
+## ⚙️ 本地运行方式
 
-- **Backend**
-  - Python >= 3.10
-  - MySQL >= 5.7 / PostgreSQL >= 12 / SQL Server / SQLite
-  - Redis >= 5.0
+以下步骤假设你已经安装了：
 
-- **Frontend**
-  - Node.js >= 20.10.0
-  - pnpm >= 9.12.0
+- Python ≥ 3.10  
+- Node.js ≥ 20.10.0  
+- pnpm ≥ 9.12.0  
+- MySQL（或其他支持的数据库）  
+- Redis（建议本地启动一个实例）
 
-### Backend Installation
+### 1. 克隆项目
 
-1. **Clone the Project**
 ```bash
 git clone https://github.com/jiangzhikj/zq-platform.git
-cd zq-platform/backend-django
+cd zq-platform
 ```
 
-2. **Create Virtual Environment**
+### 2. 启动后端（backend-django）
+
 ```bash
-# Option 1: Using venv
+cd backend-django
+
+# 创建并激活虚拟环境（任选一种方式）
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate     # Windows
+source venv/bin/activate      # Mac/Linux
+# 或在 Windows:
+# venv\Scripts\activate
 
-# Option 2: Using conda (Recommended)
-conda create -n zqplat python=3.11 -y
-conda activate zqplat
-```
-
-3. **Install Dependencies**
-```bash
+# 安装依赖
 pip install -r requirements.txt
 ```
 
-4. **Configure Environment Variables**
+配置后端环境变量（简化示例，详情可参考 backend-django/README.md）：
+
 ```bash
-# Create .env file in backend-django directory
-vim .env
+cp .env.example .env  # 如果仓库提供示例文件，可先复制
+vim .env              # 或用你习惯的编辑器修改
 ```
 
-Main configuration items:
+核心配置项示例：
+
 ```env
-# JWT Keys
+# JWT 密钥
 JWT_ACCESS_SECRET_KEY=your-jwt-access-secret
 JWT_REFRESH_SECRET_KEY=your-jwt-refresh-secret
 
-# Database Configuration
-DATABASE_TYPE=MYSQL  # MYSQL/POSTGRESQL/SQLSERVER/SQLITE3
+# 数据库配置
+DATABASE_TYPE=MYSQL
 DATABASE_HOST=127.0.0.1
 DATABASE_PORT=3306
-DATABASE_USER=root
-DATABASE_PASSWORD=password
-DATABASE_NAME=zq_admin
+DATABASE_USER=fuadmin
+DATABASE_PASSWORD=fuadmin
+DATABASE_NAME=fu_admin_pro
 
-# Redis Configuration
+# Redis 配置
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=2
 ```
 
-5. **Database Migration**
+初始化数据库：
+
 ```bash
 python manage.py makemigrations core scheduler
 python manage.py migrate
-```
 
-6. **Initialize Data**
-```bash
+# 可选：导入初始数据（包含默认账号、菜单等）
 python manage.py loaddata db_init.json
 ```
 
-7. **Start Service**
+运行开发服务器：
+
 ```bash
-# Development Environment
 python manage.py runserver 0.0.0.0:8000
 ```
 
-8. **Start Task Scheduler (Optional)**
-```bash
-# Production Environment
-python start_scheduler.py
-```
+此时可访问：
 
-### Frontend Installation
+- 后端 API 文档：`http://localhost:8000/api/docs`
 
-1. **Navigate to Frontend Directory**
+### 3. 启动前端（web）
+
+在项目根目录的另一个终端中：
+
 ```bash
 cd zq-platform/web
-```
 
-2. **Install Dependencies**
-```bash
+# 安装依赖（使用 pnpm）
 pnpm install
 ```
 
-3. **Configure Environment Variables**
+配置前端环境变量：
+
 ```bash
 cd apps/web-ele
 cp .env.development .env
-# Edit the .env file to configure backend API address
+# 编辑 .env，将后端地址改成你本地的服务，例如：
+# VITE_GLOB_API_URL=http://localhost:8000/api
 ```
 
-4. **Start Development Server**
+返回 web 根目录，启动开发服务器：
+
 ```bash
-# In web root directory
+cd ../..
 pnpm dev
 ```
 
-5. **Build for Production**
+默认访问地址类似：`http://localhost:5777`（以实际输出为准）。
+
+### 4. 默认登录账号
+
+当你执行了 `python manage.py loaddata db_init.json` 之后，可以使用默认账号登录前端：
+
+- 用户名：`superadmin`  
+- 密码：`123456`（如有变更以后端实际配置为准）
+
+---
+
+## 🔧 进阶能力与常用命令（节选）
+
+只列出与本 README 提到能力强相关的几条，更多可参考 `backend-django/README.md` 与 `docs`：
+
+- 导入 Oracle 转换后的 SQL（可选）：
+
 ```bash
-pnpm build:ele
+# 导入表结构（DDL）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/create --all --batch-id ddl_batch --auto-fix --continue-on-error
+
+# 导入数据（DML）
+python manage.py import_oracle_sql ../docs/hospital/convertsql/insert --all --batch-id dml_batch --auto-fix --continue-on-error
 ```
 
-## 📝 Default Account
-
-After initializing data, you can login with the following account:
-
-- Username: `superadmin`
-- Password: `123456` or contact administrator
-
-## 🔧 Main Functional Modules
-
-### System Management
-- **User Management**: CRUD operations for users, password reset, status management
-- **Role Management**: Role permission assignment, data permission control
-- **Permission Management**: Fine-grained API and button permission control
-- **Department Management**: Tree-structured department management
-- **Position Management**: Position information maintenance
-- **Menu Management**: Dynamic menu configuration, route management
-- **Dictionary Management**: System dictionary maintenance
-
-### System Monitoring
-- **Server Monitoring**: Real-time monitoring of CPU, memory, disk, network
-- **Redis Monitoring**: Redis performance metrics, key-value management
-- **Database Monitoring**: Database connection, performance monitoring
-- **Login Logs**: User login records, IP geolocation
-
-### Task Scheduling
-- **Scheduled Tasks**: Cron expression configuration
-- **Task Logs**: Execution history, result viewing
-- **Task Management**: Start, stop, execute immediately
-
-### File Management
-- **File Upload**: Multi-file upload support
-- **File Preview**: Online preview for images and documents
-- **File Download**: Batch download functionality
-
-### Data Management (Extended)
-
-#### Database Table Query
-Configuration-driven dynamic table querying system:
-- **JSON Configuration**: Define query rules without code changes
-- **Dynamic Query API**: Unified query endpoint with pagination, filtering, sorting
-- **SQL Injection Protection**: Parameterized queries and whitelist validation
-- **Data Export**: Export to Excel/CSV formats
-- **Query Logging**: Audit all query and export operations
+- 批量创建表查询配置：
 
 ```bash
-# Batch create table configurations
-python manage.py batch_create_table_configs --prefix BS_ --all
-
-# Initialize query menus
-python manage.py init_table_query_menus
+python manage.py batch_create_table_configs --list
+python manage.py batch_create_table_configs --prefix BS --update
 ```
 
-#### SQL Import (Oracle to MySQL)
-Oracle SQL file conversion and import system:
-- **Syntax Conversion**: Oracle to MySQL compatible syntax
-- **Batch Import**: Directory-based batch file import
-- **Status Tracking**: Resume interrupted imports, retry failed files
-- **Progress Reporting**: Detailed import progress and statistics
+- 问卷 Schema 同步与数据导入（依赖外部问卷 API）：
 
 ```bash
-# Convert Oracle SQL files to MySQL
-python manage.py convert_sql input.sql -o output/
-
-# Import converted files
-python manage.py import_sql converted/ --all --resume
-```
-
-#### Survey Data Integration
-External survey API integration for questionnaire data management:
-- **Schema Sync**: Auto-sync questionnaire schema definitions from external API
-- **Data Import**: Batch and incremental import with JWT authentication
-- **Dynamic Display**: Schema-driven table columns and search forms
-- **Flexible Export**: Export with label (text) or value (numeric) mode
-- **Sub-form Support**: Expand nested data (e.g., outdoor activities) in exports
-- **Scheduled Tasks**: Automatic schema sync and data import via APScheduler
-
-```bash
-# Sync questionnaire schemas from external API
 python manage.py sync_survey_schemas
-
-# Import questionnaire data (full or incremental)
-python manage.py import_survey_data --incremental
-
-# Initialize survey management menus
-python manage.py init_survey_menus
+python manage.py import_survey_data
 ```
 
-## 🔐 API Documentation
+---
 
-After starting the backend, visit the following URLs to view API documentation:
+## 📦 部署提示（简要）
 
-- Swagger UI: `http://localhost:8000/api/docs`
-- ReDoc: `http://localhost:8000/api/redoc`
+完整部署方案请参考项目文档与 openspec 规范，这里只给出最简要版本：
 
-## 🛠️ Development Guide
+1. **后端**
+   - 使用 Gunicorn/Uvicorn 运行 Django 应用
+   - 通过 Nginx 做反向代理与静态文件托管
+   - 配置系统服务（systemd/Supervisor）保证进程守护
 
-### Code Style Conventions
+2. **前端**
+   - 在 `web` 目录执行 `pnpm build:ele`
+   - 将生成的 `dist` 目录部署到 Nginx 静态站点
+   - 配置反向代理，将 `/api` 转发到后端服务
 
-#### Backend (Python/Django)
-- Follow PEP 8 coding standards
-- Use UTF-8 encoding declaration: `# -*- coding: utf-8 -*-`
-- Write comments and docstrings in Chinese
-- Module files naming: `module_function.py` (e.g., `user_api.py`, `user_model.py`)
-- Class names: PascalCase; Functions and variables: snake_case
-- API endpoints: RESTful style with unified response format
+---
 
-#### Frontend (TypeScript/Vue)
-- Use ESLint + Prettier for code formatting
-- TypeScript for type-safe development
-- Components use `<script setup>` syntax
-- Prefer Tailwind CSS for styling
-- Import icons from `@vben/icons`
+## 🤝 贡献方式
 
-### Backend Module Architecture
+欢迎提交 Issue 与 Pull Request：
 
-Each business module (user, role, permission, etc.) follows this structure:
-```
-core/
-└── [module]/
-    ├── __init__.py
-    ├── [module]_api.py      # API Endpoints (Django Ninja Router)
-    ├── [module]_model.py    # Data Models (Django Model)
-    └── [module]_schema.py   # Data Validation (Pydantic Schema)
-```
+1. Fork 本仓库  
+2. 创建特性分支：`git checkout -b feature/my-feature`  
+3. 提交代码：`git commit -m "feat: add my feature"`  
+4. 推送分支：`git push origin feature/my-feature`  
+5. 提交 Pull Request
 
-### Frontend Development
+如进行较大改动，建议先在 `openspec/changes` 中撰写变更提案，遵循 OpenSpec 流程。
 
-1. **Adding New Pages**
-   - Create page components in `src/views/`
-   - Add routes in `src/router/routes/modules/`
-   - Add API definitions in `src/api/`
+---
 
-2. **Component Development Standards**
-   - Use Element Plus components
-   - Prefer Tailwind CSS
-   - Support dark mode
-   - Import icons from `@vben/icons`
+## 📞 联系方式
 
-### Testing Strategy
-
-#### Frontend Testing
-- **Unit Tests**: Vitest + Vue Test Utils + happy-dom
-- **E2E Tests**: Playwright
-- Test files: `*.spec.ts` or `*.test.ts`
-- Commands: `pnpm test:unit` (unit), `pnpm test:e2e` (E2E)
-
-#### Backend Testing
-- Django TestCase for unit tests
-- Django Ninja test client for API tests
-- Test data fixtures: `db_init.json`
-
-### Git Workflow
-
-#### Branch Strategy
-- `main`: Main branch, stable and releasable
-- `feature/*`: Feature branches, created from main
-- `fix/*`: Bug fix branches
-- `release/*`: Release branches
-
-#### Commit Conventions
-- Use Conventional Commits specification
-- Format: `<type>(<scope>): <description>`
-- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-- Use `pnpm commit` (czg) for interactive commits
-- Git Hooks: lefthook + commitlint
-
-## 📋 OpenSpec Specification-Driven Development
-
-This project uses OpenSpec for specification-driven development. All major features and changes are documented through structured specifications.
-
-### Directory Structure
-```
-openspec/
-├── project.md              # Project conventions and context
-├── AGENTS.md               # AI assistant instructions
-├── specs/                  # Current specifications (source of truth)
-│   └── [capability]/
-│       ├── spec.md         # Requirements and scenarios
-│       └── design.md       # Technical patterns
-└── changes/                # Change proposals
-    ├── [change-name]/
-    │   ├── proposal.md     # Why, what, impact
-    │   ├── tasks.md        # Implementation checklist
-    │   ├── design.md       # Technical decisions (optional)
-    │   └── specs/          # Incremental spec changes
-    └── archive/            # Completed changes
-```
-
-### Creating a Change Proposal
-
-When adding new features or making significant changes:
-
-1. **Create change directory**: `openspec/changes/[change-id]/`
-2. **Write proposal.md**: Document why, what, and impact
-3. **Create spec deltas**: Use `## ADDED|MODIFIED|REMOVED Requirements`
-4. **Validate**: `openspec-cn validate [change-id] --strict`
-
-### CLI Commands
-
-```bash
-# List active changes
-openspec-cn list
-
-# List specifications
-openspec-cn list --specs
-
-# Show change or spec details
-openspec-cn show [item]
-
-# Validate change or spec
-openspec-cn validate [item] --strict
-
-# Archive completed change
-openspec-cn archive <change-id> --yes
-```
-
-For detailed instructions, see `openspec/AGENTS.md`.
-
-## 📦 Deployment
-
-1. **Backend Deployment**
-   - Use Gunicorn + Nginx
-   - Configure Supervisor process daemon
-   - Configure SSL certificates
-
-2. **Frontend Deployment**
-   - Execute `pnpm build` to build
-   - Deploy `dist` directory to Nginx
-   - Configure reverse proxy
-
-## 🤝 Contributing
-
-Issues and Pull Requests are welcome!
-
-1. Fork this project
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Development Process
-1. Check existing specs: `openspec-cn list --specs`
-2. Create change proposal for significant changes
-3. Get proposal approved before implementation
-4. Follow code conventions in `openspec/project.md`
-5. Update tasks.md as you complete items
-
-## 🙏 Acknowledgments
-
-- [Django](https://www.djangoproject.com/) - Powerful Python web framework
-- [Django Ninja](https://django-ninja.rest-framework.com/) - Fast Django REST framework
-- [Vue Vben Admin](https://github.com/vbenjs/vue-vben-admin) - Excellent Vue3 admin template
-- [Element Plus](https://element-plus.org/) - Vue 3 component library
-- [OpenSpec](https://github.com/openspec-cn/openspec) - Specification-driven development
-
-## 📞 Contact
-
-For questions or suggestions, please contact us via:
-
-- Issue: [GitHub Issues](../../issues)
-- Email: jiangzhikj@outlook.com
+- Issue：通过 GitHub Issues 提交问题与建议  
+- 邮箱：`jiangzhikj@outlook.com`
 
 ---
 
 <div align="center">
-  Made with ❤️ by ZQ Team
+  由 ZQ 团队用 ❤️ 打造
 </div>
