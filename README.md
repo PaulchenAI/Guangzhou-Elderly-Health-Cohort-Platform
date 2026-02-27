@@ -343,27 +343,5 @@ python manage.py import_survey_data
 
 ---
 
-## 🤝 贡献方式
 
-欢迎提交 Issue 与 Pull Request：
 
-1. Fork 本仓库  
-2. 创建特性分支：`git checkout -b feature/my-feature`  
-3. 提交代码：`git commit -m "feat: add my feature"`  
-4. 推送分支：`git push origin feature/my-feature`  
-5. 提交 Pull Request
-
-如进行较大改动，建议先在 `openspec/changes` 中撰写变更提案，遵循 OpenSpec 流程。
-
----
-
-## 📞 联系方式
-
-- Issue：通过 GitHub Issues 提交问题与建议  
-- 邮箱：`jiangzhikj@outlook.com`
-
----
-
-<div align="center">
-  由 ZQ 团队用 ❤️ 打造
-</div>
